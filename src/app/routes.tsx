@@ -30,14 +30,14 @@ const routes: AppRouteConfig[] = [
     exact: true,
     label: 'Dashboard',
     path: '/',
-    title: 'PatternFly Seed | Main Dashboard',
+    title: 'Hale Commenting System | Main Dashboard',
   },
   {
     element: <Support />,
     exact: true,
     label: 'Support',
     path: '/support',
-    title: 'PatternFly Seed | Support Page',
+    title: 'Hale Commenting System | Support Page',
   },
   {
     label: 'Settings',
@@ -47,16 +47,20 @@ const routes: AppRouteConfig[] = [
         exact: true,
         label: 'General',
         path: '/settings/general',
-        title: 'PatternFly Seed | General Settings',
+        title: 'Hale Commenting System | General Settings',
       },
       {
         element: <ProfileSettings />,
         exact: true,
         label: 'Profile',
         path: '/settings/profile',
-        title: 'PatternFly Seed | Profile Settings',
+        title: 'Hale Commenting System | Profile Settings',
       },
     ],
+  },
+  {
+    label: 'Comments',
+    routes: [],
   },
 ];
 

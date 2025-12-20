@@ -15,9 +15,11 @@ import {
   PageSidebar,
   PageSidebarBody,
   SkipToContent,
+  Switch,
 } from '@patternfly/react-core';
 import { IAppRoute, IAppRouteGroup, routes } from '@app/routes';
-import { BarsIcon } from '@patternfly/react-icons';
+import { BarsIcon, GithubIcon } from '@patternfly/react-icons';
+import { useComments, CommentOverlay, CommentPanel } from '@app/commenting-system';
 
 interface IAppLayout {
   children: React.ReactNode;
@@ -25,6 +27,7 @@ interface IAppLayout {
 
 const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const { commentsEnabled, setCommentsEnabled, drawerPinnedOpen, setDrawerPinnedOpen } = useComments();
   const masthead = (
     <Masthead>
       <MastheadMain>
@@ -98,16 +101,85 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
     </NavItem>
   );
 
-  const renderNavGroup = (group: IAppRouteGroup, groupIndex: number) => (
-    <NavExpandable
-      key={`${group.label}-${groupIndex}`}
-      id={`${group.label}-${groupIndex}`}
-      title={group.label}
-      isActive={group.routes.some((route) => route.path === location.pathname)}
-    >
-      {group.routes.map((route, idx) => route.label && renderNavItem(route, idx))}
-    </NavExpandable>
-  );
+  const renderNavGroup = (group: IAppRouteGroup, groupIndex: number) => {
+    // Special handling for Comments group
+    if (group.label === 'Comments') {
+      return (
+        <NavExpandable
+          key={`${group.label}-${groupIndex}`}
+          id={`${group.label}-${groupIndex}`}
+          title={group.label}
+          isActive={group.routes.some((route) => route.path === location.pathname)}
+        >
+          <NavItem>
+            <div
+              data-comment-controls
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
+            >
+              <span>Enable Comments</span>
+              <Switch
+                id="comments-enabled-switch"
+                isChecked={commentsEnabled}
+                onChange={(_event, checked) => {
+                  setCommentsEnabled(checked);
+                  if (checked) {
+                    setDrawerPinnedOpen(true);
+                  }
+                }}
+                aria-label="Enable or disable comments"
+              />
+            </div>
+          </NavItem>
+          <NavItem>
+            <div
+              data-comment-controls
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
+            >
+              <span>Page info drawer</span>
+              <Switch
+                id="page-info-drawer-switch"
+                isChecked={drawerPinnedOpen}
+                onChange={(_event, checked) => setDrawerPinnedOpen(checked)}
+                aria-label="Pin page info drawer open"
+              />
+            </div>
+          </NavItem>
+          <NavItem>
+            <div
+              data-comment-controls
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
+            >
+              <Button
+                variant="link"
+                isInline
+                icon={<GithubIcon />}
+                onClick={() => {
+                  // TODO: wire to GitHub OAuth flow
+                  // eslint-disable-next-line no-console
+                  console.log('Sign in with GitHub');
+                }}
+              >
+                Sign in with GitHub
+              </Button>
+            </div>
+          </NavItem>
+          {group.routes.map((route, idx) => route.label && renderNavItem(route, idx))}
+        </NavExpandable>
+      );
+    }
+
+    // Default handling for other groups
+    return (
+      <NavExpandable
+        key={`${group.label}-${groupIndex}`}
+        id={`${group.label}-${groupIndex}`}
+        title={group.label}
+        isActive={group.routes.some((route) => route.path === location.pathname)}
+      >
+        {group.routes.map((route, idx) => route.label && renderNavItem(route, idx))}
+      </NavExpandable>
+    );
+  };
 
   const Navigation = (
     <Nav id="nav-primary-simple">
@@ -146,7 +218,10 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
       sidebar={sidebarOpen && Sidebar}
       skipToContent={PageSkipToContent}
     >
-      {children}
+      <CommentPanel>
+        <CommentOverlay />
+        {children}
+      </CommentPanel>
     </Page>
   );
 };
