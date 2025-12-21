@@ -101,3 +101,9 @@ ENV_2=http://2.myendpoint.com
 
 
 With that in place, you can use the values in your code like `console.log(process.env.ENV_1);`
+
+### GitHub OAuth / Issues env vars (local dev)
+
+For the commenting system, see `GITHUB_OAUTH_ENV_TEMPLATE.md`.
+
+**Important:** because webpack injects `.env` values into the browser bundle, do **not** put secrets (like OAuth client secrets) into `.env`.

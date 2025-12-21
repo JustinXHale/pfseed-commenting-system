@@ -8,4 +8,6 @@ storybook-static
 .DS_Store
 .idea
 .env
+.env.server
+.env.*.local
 .history

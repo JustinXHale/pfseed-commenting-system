@@ -2,13 +2,16 @@ import * as React from 'react';
 import { useLocation } from 'react-router-dom';
 import { useComments } from '../contexts/CommentContext';
 import { CommentPin } from './CommentPin';
+import { getVersionFromPathOrQuery } from '../utils/version';
 
 export const CommentOverlay: React.FunctionComponent = () => {
   const location = useLocation();
-  const { threads, commentsEnabled, addThread, selectedThreadId, setSelectedThreadId } = useComments();
+  const { commentsEnabled, addThread, selectedThreadId, setSelectedThreadId, syncFromGitHub, getThreadsForRoute } = useComments();
+  const detectedVersion = getVersionFromPathOrQuery(location.pathname, location.search);
   const overlayRef = React.useRef<HTMLDivElement>(null);
 
-  const currentThreads = threads.filter((thread) => thread.route === location.pathname);
+  // Show both open and closed threads as pins (GitHub-style: closed issues still exist)
+  const currentThreads = getThreadsForRoute(location.pathname, detectedVersion);
 
   const handlePageClick = (e: MouseEvent) => {
     if (!commentsEnabled) return;
@@ -36,20 +39,25 @@ export const CommentOverlay: React.FunctionComponent = () => {
     const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
     const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
 
-    const threadId = addThread(xPercent, yPercent, location.pathname);
+    const threadId = addThread(xPercent, yPercent, location.pathname, detectedVersion);
     setSelectedThreadId(threadId);
   };
 
   React.useEffect(() => {
+    console.log('🔄 CommentOverlay useEffect triggered', { commentsEnabled, pathname: location.pathname, detectedVersion });
+
     if (commentsEnabled) {
       document.addEventListener('click', handlePageClick);
+      // Pull latest changes from GitHub when entering comment mode or switching routes
+      console.log('🔄 CommentOverlay calling syncFromGitHub...');
+      syncFromGitHub(location.pathname, detectedVersion).catch(() => undefined);
     }
 
     return () => {
       document.removeEventListener('click', handlePageClick);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commentsEnabled, location.pathname, addThread, setSelectedThreadId]);
+  }, [commentsEnabled, location.pathname, detectedVersion]);
 
   // Only show pins when commenting is enabled
   if (!commentsEnabled) {
@@ -75,6 +83,7 @@ export const CommentOverlay: React.FunctionComponent = () => {
           xPercent={thread.xPercent}
           yPercent={thread.yPercent}
           commentCount={thread.comments.length}
+          isClosed={thread.status === 'closed'}
           isSelected={selectedThreadId === thread.id}
           onClick={() => setSelectedThreadId(thread.id)}
         />

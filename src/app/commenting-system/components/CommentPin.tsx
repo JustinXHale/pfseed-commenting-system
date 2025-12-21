@@ -6,6 +6,7 @@ interface CommentPinProps {
   xPercent: number;
   yPercent: number;
   commentCount: number;
+  isClosed?: boolean;
   isSelected: boolean;
   onClick: () => void;
 }
@@ -14,6 +15,7 @@ export const CommentPin: React.FunctionComponent<CommentPinProps> = ({
   xPercent,
   yPercent,
   commentCount,
+  isClosed = false,
   isSelected,
   onClick,
 }) => {
@@ -29,7 +31,7 @@ export const CommentPin: React.FunctionComponent<CommentPinProps> = ({
         width: '32px',
         height: '32px',
         borderRadius: '50%',
-        backgroundColor: '#C9190B',
+        backgroundColor: isClosed ? 'var(--pf-t--global--icon--color--subtle)' : '#C9190B',
         color: 'white',
         border: isSelected ? '3px solid #0066CC' : '2px solid white',
         boxShadow: isSelected
@@ -44,7 +46,7 @@ export const CommentPin: React.FunctionComponent<CommentPinProps> = ({
         pointerEvents: 'auto',
       }}
       onClick={onClick}
-      aria-label={`Comment thread with ${commentCount} comment${commentCount !== 1 ? 's' : ''}`}
+      aria-label={`${isClosed ? 'Closed ' : ''}comment thread with ${commentCount} comment${commentCount !== 1 ? 's' : ''}`}
     >
       {commentCount === 0 ? (
         <CommentIcon style={{ fontSize: '16px' }} />

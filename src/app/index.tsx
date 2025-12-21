@@ -4,15 +4,18 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import { AppLayout } from '@app/AppLayout/AppLayout';
 import { AppRoutes } from '@app/routes';
 import { CommentProvider } from '@app/commenting-system';
+import { GitHubAuthProvider } from '@app/commenting-system';
 import '@app/app.css';
 
 const App: React.FunctionComponent = () => (
   <Router>
-    <CommentProvider>
-      <AppLayout>
-        <AppRoutes />
-      </AppLayout>
-    </CommentProvider>
+    <GitHubAuthProvider>
+      <CommentProvider>
+        <AppLayout>
+          <AppRoutes />
+        </AppLayout>
+      </CommentProvider>
+    </GitHubAuthProvider>
   </Router>
 );
 

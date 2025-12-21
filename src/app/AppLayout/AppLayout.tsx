@@ -19,7 +19,7 @@ import {
 } from '@patternfly/react-core';
 import { IAppRoute, IAppRouteGroup, routes } from '@app/routes';
 import { BarsIcon, GithubIcon } from '@patternfly/react-icons';
-import { useComments, CommentOverlay, CommentPanel } from '@app/commenting-system';
+import { useComments, CommentOverlay, CommentPanel, useGitHubAuth } from '@app/commenting-system';
 
 interface IAppLayout {
   children: React.ReactNode;
@@ -28,6 +28,7 @@ interface IAppLayout {
 const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const { commentsEnabled, setCommentsEnabled, drawerPinnedOpen, setDrawerPinnedOpen } = useComments();
+  const { isAuthenticated, user, login, logout } = useGitHubAuth();
   const masthead = (
     <Masthead>
       <MastheadMain>
@@ -149,18 +150,21 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
               data-comment-controls
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
             >
-              <Button
-                variant="link"
-                isInline
-                icon={<GithubIcon />}
-                onClick={() => {
-                  // TODO: wire to GitHub OAuth flow
-                  // eslint-disable-next-line no-console
-                  console.log('Sign in with GitHub');
-                }}
-              >
-                Sign in with GitHub
-              </Button>
+              {isAuthenticated ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <GithubIcon />
+                    {user?.login ? `@${user.login}` : 'Signed in'}
+                  </span>
+                  <Button variant="link" isInline onClick={logout}>
+                    Sign out
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="link" isInline icon={<GithubIcon />} onClick={login}>
+                  Sign in with GitHub
+                </Button>
+              )}
             </div>
           </NavItem>
           {group.routes.map((route, idx) => route.label && renderNavItem(route, idx))}

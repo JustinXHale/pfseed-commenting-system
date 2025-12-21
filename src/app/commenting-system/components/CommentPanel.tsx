@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Drawer,
   DrawerActions,
@@ -21,10 +22,13 @@ import {
   EmptyState,
   EmptyStateBody,
   Label,
+  Spinner,
 } from '@patternfly/react-core';
-import { ExternalLinkAltIcon, GithubIcon, InfoCircleIcon, MagicIcon } from '@patternfly/react-icons';
+import { ExternalLinkAltIcon, GithubIcon, InfoCircleIcon, TrashIcon } from '@patternfly/react-icons';
 import { useComments } from '../contexts/CommentContext';
 import { DetailsTab } from './DetailsTab';
+import { JiraTab } from './JiraTab';
+import { getVersionFromPathOrQuery } from '../utils/version';
 
 interface CommentPanelProps {
   children: React.ReactNode;
@@ -32,7 +36,7 @@ interface CommentPanelProps {
 
 export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ children }) => {
   const {
-    threads,
+    getThreadsForRoute,
     selectedThreadId,
     setSelectedThreadId,
     drawerPinnedOpen,
@@ -40,15 +44,23 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     addReply,
     updateComment,
     deleteComment,
-    deleteThread,
+    closeThread,
+    reopenThread,
+    removePin,
+    retrySync,
   } = useComments();
+  const location = useLocation();
+  const detectedVersion = getVersionFromPathOrQuery(location.pathname, location.search);
   const [newCommentText, setNewCommentText] = React.useState('');
+  const [replyingToCommentId, setReplyingToCommentId] = React.useState<string | null>(null);
+  const [replyTextByCommentId, setReplyTextByCommentId] = React.useState<Record<string, string>>({});
   const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
   const [editText, setEditText] = React.useState('');
   const drawerRef = React.useRef<HTMLSpanElement>(null);
   const [activeTabKey, setActiveTabKey] = React.useState<string | number>('comments');
 
-  const selectedThread = threads.find((t) => t.id === selectedThreadId);
+  const currentThreads = getThreadsForRoute(location.pathname, detectedVersion);
+  const selectedThread = currentThreads.find((t) => t.id === selectedThreadId);
   const isExpanded = !!selectedThreadId || drawerPinnedOpen;
 
   const onExpand = () => {
@@ -72,6 +84,24 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
       addReply(selectedThread.id, newCommentText.trim());
       setNewCommentText('');
     }
+  };
+
+  const handleStartReply = (commentId: string) => {
+    setReplyingToCommentId(commentId);
+    setReplyTextByCommentId((prev) => ({ ...prev, [commentId]: prev[commentId] ?? '' }));
+  };
+
+  const handleCancelReply = () => {
+    setReplyingToCommentId(null);
+  };
+
+  const handleSubmitReply = (parentCommentId: string) => {
+    if (!selectedThread) return;
+    const text = (replyTextByCommentId[parentCommentId] || '').trim();
+    if (!text) return;
+    addReply(selectedThread.id, text, parentCommentId);
+    setReplyTextByCommentId((prev) => ({ ...prev, [parentCommentId]: '' }));
+    setReplyingToCommentId(null);
   };
 
   const handleStartEdit = (commentId: string, currentText: string) => {
@@ -98,10 +128,21 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     }
   };
 
-  const handleDeleteThread = () => {
+  const handleCloseThread = () => {
     if (selectedThread) {
-      deleteThread(selectedThread.id);
+      closeThread(selectedThread.id);
     }
+  };
+
+  const handleReopenThread = () => {
+    if (selectedThread) {
+      reopenThread(selectedThread.id);
+    }
+  };
+
+  const handleRemovePin = () => {
+    if (!selectedThread) return;
+    removePin(selectedThread.id);
   };
 
   const handleClose = () => {
@@ -110,6 +151,8 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     setEditingCommentId(null);
     setEditText('');
     setNewCommentText('');
+    setReplyingToCommentId(null);
+    setReplyTextByCommentId({});
   };
 
   const formatCommentDate = (isoDate: string): string => {
@@ -122,11 +165,46 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     });
   };
 
-  const JiraTab = (
-    <EmptyState icon={InfoCircleIcon} titleText="No Jira links set" headingLevel="h3">
-      <EmptyStateBody>Add Jira links/IDs here later (route-based metadata/inheritance).</EmptyStateBody>
-    </EmptyState>
-  );
+  const stripMarkersForDisplay = (text: string): string => {
+    return text
+      .replace(/<!--\s*hale-reply-to:\d+\s*-->\s*\n?/g, '')
+      .replace(/<!--\s*hale-reply-to-local\s*-->\s*\n?/g, '')
+      .trimEnd();
+  };
+
+  const deriveStatus = () => {
+    if (!selectedThread) return 'local' as const;
+    if (selectedThread.syncStatus === 'error') return 'error' as const;
+    // If we have an issue and any comment hasn't synced yet, treat as pending.
+    if (selectedThread.issueNumber && selectedThread.comments.some((c) => !c.githubCommentId)) return 'pending' as const;
+    if (selectedThread.issueNumber) return 'synced' as const;
+    return selectedThread.syncStatus || 'local';
+  };
+
+  const renderSyncLabel = (status?: 'synced' | 'local' | 'pending' | 'syncing' | 'error') => {
+    switch (status) {
+      case 'synced':
+        return (
+          <Label color="green" icon={<GithubIcon />}>
+            Synced
+          </Label>
+        );
+      case 'local':
+        return <Label color="grey">Local</Label>;
+      case 'pending':
+        return <Label color="blue">Pending…</Label>;
+      case 'syncing':
+        return (
+          <Label color="blue" icon={<Spinner size="sm" />}>
+            Syncing…
+          </Label>
+        );
+      case 'error':
+        return <Label color="red">Sync error</Label>;
+      default:
+        return null;
+    }
+  };
 
   const panelContent = isExpanded ? (
     <DrawerPanelContent isResizable defaultSize={'500px'} minSize={'300px'}>
@@ -152,7 +230,9 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
             </div>
           </Tab>
           <Tab eventKey="jira" title={<TabTitleText>Jira</TabTitleText>}>
-            <div style={{ paddingTop: '1rem' }}>{JiraTab}</div>
+            <div style={{ paddingTop: '1rem' }}>
+              <JiraTab />
+            </div>
           </Tab>
           <Tab eventKey="comments" title={<TabTitleText>Comments</TabTitleText>}>
             <div style={{ paddingTop: '1rem' }}>
@@ -174,37 +254,31 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
                           <strong>Status:</strong>
-                          <Label color="green" icon={<GithubIcon />}>
-                            Synced
-                          </Label>
+                          {renderSyncLabel(deriveStatus()) ?? <Label color="grey">Local</Label>}
                         </div>
 
                         <div style={{ fontSize: '0.875rem' }}>
-                          {/* TODO: wire up issue number + url when GitHub sync is implemented */}
-                          <a
-                            href="#"
-                            onClick={(e) => e.preventDefault()}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                          >
-                            <GithubIcon />
-                            Issue #—
-                            <ExternalLinkAltIcon style={{ fontSize: '0.75rem' }} />
-                          </a>
+                          {selectedThread.issueNumber && selectedThread.issueUrl ? (
+                            <a
+                              href={selectedThread.issueUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                            >
+                              <GithubIcon />
+                              Issue #{selectedThread.issueNumber}
+                              <ExternalLinkAltIcon style={{ fontSize: '0.75rem' }} />
+                            </a>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                              <GithubIcon />
+                              Issue pending…
+                            </span>
+                          )}
                         </div>
 
                         <div>
-                          {/* TODO: wire up AI summarize when backend is ready */}
-                          <Button
-                            variant="secondary"
-                            icon={<MagicIcon />}
-                            onClick={() => {
-                              // eslint-disable-next-line no-console
-                              console.log('AI Summarize Thread (scaffold)');
-                            }}
-                            isDisabled={selectedThread.comments.length === 0}
-                          >
-                            AI Summarize Thread
-                          </Button>
+                          {/* AI summarize removed for now */}
                         </div>
                       </div>
                     </CardBody>
@@ -213,84 +287,211 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
                   {/* Comments List */}
                   {selectedThread.comments.length > 0 && (
                     <div style={{ marginBottom: '1.5rem' }}>
-                      {selectedThread.comments.map((comment, index) => (
-                        <Card key={comment.id} style={{ marginBottom: '1rem' }}>
-                          <CardBody>
-                            <Title headingLevel="h3" size="xl">
-                              Comment #{index + 1}
-                            </Title>
+                      {(() => {
+                        const comments = selectedThread.comments;
+
+                        const byId = new Map(comments.map((c) => [c.id, c]));
+                        const byGitHubId = new Map<number, string>();
+                        for (const c of comments) {
+                          if (c.githubCommentId) byGitHubId.set(c.githubCommentId, c.id);
+                        }
+
+                        const childrenByParent = new Map<string, string[]>();
+                        const topLevel: string[] = [];
+
+                        for (const c of comments) {
+                          const parentLocal =
+                            c.parentCommentId ||
+                            (c.parentGitHubCommentId ? byGitHubId.get(c.parentGitHubCommentId) : undefined);
+
+                          if (parentLocal && byId.has(parentLocal)) {
+                            const list = childrenByParent.get(parentLocal) || [];
+                            list.push(c.id);
+                            childrenByParent.set(parentLocal, list);
+                          } else {
+                            topLevel.push(c.id);
+                          }
+                        }
+
+                        const sortByCreatedAt = (aId: string, bId: string) => {
+                          const a = byId.get(aId);
+                          const b = byId.get(bId);
+                          const at = a ? Date.parse(a.createdAt) : 0;
+                          const bt = b ? Date.parse(b.createdAt) : 0;
+                          return at - bt;
+                        };
+
+                        topLevel.sort(sortByCreatedAt);
+                        childrenByParent.forEach((list, parentId) => {
+                          list.sort(sortByCreatedAt);
+                          childrenByParent.set(parentId, list);
+                        });
+
+                        const renderNode = (id: string, depth: number, topIndex?: number) => {
+                          const comment = byId.get(id);
+                          if (!comment) return null;
+
+                          const isReply = depth > 0;
+                          const title = isReply ? 'Reply' : `Comment #${(topIndex ?? 0) + 1}`;
+
+                          const children = childrenByParent.get(id) || [];
+
+                          return (
                             <div
+                              key={id}
                               style={{
-                                marginTop: '0.25rem',
-                                fontSize: '0.875rem',
-                                color: 'var(--pf-t--global--text--color--subtle)',
+                                marginLeft: depth * 16,
+                                marginTop: depth > 0 ? '8px' : undefined,
+                                marginBottom: depth > 0 ? '8px' : '1rem',
                               }}
                             >
-                              @— &nbsp; {formatCommentDate(comment.createdAt)}
+                              <Card>
+                                <CardBody style={{ position: 'relative' }}>
+                                  <Button
+                                    variant="plain"
+                                    icon={<TrashIcon />}
+                                    isDanger
+                                    aria-label="Delete comment"
+                                    title="Delete comment"
+                                    onClick={() => handleDeleteComment(comment.id)}
+                                    style={{ position: 'absolute', top: '12px', right: '12px' }}
+                                  />
+                                  <Title headingLevel="h3" size={isReply ? 'lg' : 'xl'} style={{ paddingRight: '2.5rem' }}>
+                                    {title}
+                                  </Title>
+                                  <div
+                                    style={{
+                                      marginTop: '0.25rem',
+                                      fontSize: '0.875rem',
+                                      color: 'var(--pf-t--global--text--color--subtle)',
+                                      paddingRight: '2.5rem',
+                                    }}
+                                  >
+                                    @{comment.author ?? '—'} &nbsp; {formatCommentDate(comment.createdAt)}
+                                  </div>
+
+                                  {editingCommentId === comment.id ? (
+                                    <div style={{ marginTop: '0.5rem' }}>
+                                      <TextArea
+                                        value={editText}
+                                        onChange={(_event, value) => setEditText(value)}
+                                        aria-label="Edit comment"
+                                        rows={3}
+                                      />
+                                      <ActionList style={{ marginTop: '0.5rem' }}>
+                                        <ActionListItem>
+                                          <Button variant="primary" onClick={() => handleSaveEdit(comment.id)}>
+                                            Save
+                                          </Button>
+                                        </ActionListItem>
+                                        <ActionListItem>
+                                          <Button variant="link" onClick={handleCancelEdit}>
+                                            Cancel
+                                          </Button>
+                                        </ActionListItem>
+                                      </ActionList>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <div style={{ marginTop: '0.75rem', whiteSpace: 'pre-wrap' }}>
+                                        {stripMarkersForDisplay(comment.text)}
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0.5rem' }}>
+                                        <Button variant="primary" onClick={() => handleStartReply(comment.id)}>
+                                          Reply
+                                        </Button>
+                                        <Button variant="link" onClick={() => handleStartEdit(comment.id, stripMarkersForDisplay(comment.text))}>
+                                          Edit
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {replyingToCommentId === comment.id && (
+                                    <div style={{ marginTop: '0.75rem' }}>
+                                      <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
+                                        Reply to this comment
+                                      </Title>
+                                      <TextArea
+                                        value={replyTextByCommentId[comment.id] || ''}
+                                        onChange={(_event, value) =>
+                                          setReplyTextByCommentId((prev) => ({ ...prev, [comment.id]: value }))
+                                        }
+                                        placeholder="Type your reply..."
+                                        aria-label="Reply to comment"
+                                        rows={3}
+                                      />
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0.5rem' }}>
+                                        <Button
+                                          variant="primary"
+                                          onClick={() => handleSubmitReply(comment.id)}
+                                          isDisabled={!(replyTextByCommentId[comment.id] || '').trim()}
+                                        >
+                                          Post reply
+                                        </Button>
+                                        <Button variant="link" onClick={handleCancelReply}>
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </CardBody>
+                              </Card>
+
+                              {children.map((childId) => renderNode(childId, depth + 1))}
                             </div>
-                            {editingCommentId === comment.id ? (
-                              <div style={{ marginTop: '0.5rem' }}>
-                                <TextArea
-                                  value={editText}
-                                  onChange={(_event, value) => setEditText(value)}
-                                  aria-label="Edit comment"
-                                  rows={3}
-                                />
-                                <ActionList style={{ marginTop: '0.5rem' }}>
-                                  <ActionListItem>
-                                    <Button variant="primary" onClick={() => handleSaveEdit(comment.id)}>
-                                      Save
-                                    </Button>
-                                  </ActionListItem>
-                                  <ActionListItem>
-                                    <Button variant="link" onClick={handleCancelEdit}>
-                                      Cancel
-                                    </Button>
-                                  </ActionListItem>
-                                </ActionList>
-                              </div>
-                            ) : (
-                              <div>
-                                <div style={{ marginTop: '0.75rem' }}>{comment.text}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0.5rem' }}>
-                              <Button
-                                variant="danger"
-                                onClick={() => handleDeleteComment(comment.id)}
-                              >
-                                Delete
-                              </Button>
-                              <Button variant="link" onClick={() => handleStartEdit(comment.id, comment.text)}>
-                                Edit
-                              </Button>
-                            </div>
-                              </div>
-                            )}
-                          </CardBody>
-                        </Card>
-                      ))}
+                          );
+                        };
+
+                        return <>{topLevel.map((id, idx) => renderNode(id, 0, idx))}</>;
+                      })()}
                     </div>
                   )}
 
                   {/* Add New Comment */}
                   <div>
-                    <Title headingLevel="h3" size="md" style={{ marginBottom: '0.5rem' }}>
-                      {selectedThread.comments.length === 0 ? 'Add first comment' : 'Add reply'}
-                    </Title>
-                    <TextArea
-                      value={newCommentText}
-                      onChange={(_event, value) => setNewCommentText(value)}
-                      placeholder="Type your comment..."
-                      aria-label="New comment"
-                      rows={4}
-                    />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '1rem' }}>
-                      <Button variant="primary" onClick={handleAddComment} isDisabled={!newCommentText.trim()}>
-                        {selectedThread.comments.length === 0 ? 'Add Comment' : 'Add Reply'}
-                      </Button>
-                      <Button variant="danger" onClick={handleDeleteThread}>
-                        Delete Thread
-                      </Button>
-                    </div>
+                    {selectedThread.status === 'closed' ? (
+                      <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: 'var(--pf-t--global--background--color--secondary--default)', borderRadius: 'var(--pf-t--global--border--radius--medium)' }}>
+                        <Title headingLevel="h3" size="md" style={{ marginBottom: '0.5rem' }}>
+                          🔒 Thread Closed
+                        </Title>
+                        <p style={{ color: 'var(--pf-t--global--text--color--subtle)', marginBottom: '1rem' }}>
+                          This thread has been closed and locked. Reopen it to add new comments.
+                        </p>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                           <Button variant="primary" onClick={handleReopenThread}>
+                             Reopen Thread
+                           </Button>
+                           <Button variant="link" isDanger onClick={handleRemovePin}>
+                             Remove pin
+                           </Button>
+                         </div>
+                      </div>
+                    ) : (
+                      <>
+                        <Title headingLevel="h3" size="md" style={{ marginBottom: '0.5rem' }}>
+                          Add comment
+                        </Title>
+                        <TextArea
+                          value={newCommentText}
+                          onChange={(_event, value) => setNewCommentText(value)}
+                          placeholder="Type your comment..."
+                          aria-label="New comment"
+                          rows={4}
+                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '1rem' }}>
+                          <Button variant="primary" onClick={handleAddComment} isDisabled={!newCommentText.trim()}>
+                            Add Comment
+                          </Button>
+                          <Button variant="secondary" onClick={handleCloseThread}>
+                            Close Thread
+                          </Button>
+                           <Button variant="link" isDanger onClick={handleRemovePin}>
+                             Remove pin
+                           </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               )}

@@ -115,7 +115,10 @@ module.exports = (env) => {
         template: path.resolve(__dirname, 'src', 'index.html'),
       }),
       new Dotenv({
-        systemvars: true,
+        // IMPORTANT: do not inline system env vars into the browser bundle.
+        // Keep `.env` for public/client-side config only (e.g. VITE_GITHUB_CLIENT_ID).
+        // Server-side secrets should be provided via server runtime env (functions) instead.
+        systemvars: false,
         silent: true,
       }),
       new CopyPlugin({
