@@ -28,6 +28,7 @@ import { ExternalLinkAltIcon, GithubIcon, InfoCircleIcon, TrashIcon } from '@pat
 import { useComments } from '../contexts/CommentContext';
 import { DetailsTab } from './DetailsTab';
 import { JiraTab } from './JiraTab';
+import { FloatingWidget } from './FloatingWidget';
 import { getVersionFromPathOrQuery } from '../utils/version';
 
 interface CommentPanelProps {
@@ -41,6 +42,8 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     setSelectedThreadId,
     drawerPinnedOpen,
     setDrawerPinnedOpen,
+    floatingWidgetMode,
+    setFloatingWidgetMode,
     addReply,
     updateComment,
     deleteComment,
@@ -61,7 +64,7 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
 
   const currentThreads = getThreadsForRoute(location.pathname, detectedVersion);
   const selectedThread = currentThreads.find((t) => t.id === selectedThreadId);
-  const isExpanded = !!selectedThreadId || drawerPinnedOpen;
+  const isExpanded = !!selectedThreadId || drawerPinnedOpen || floatingWidgetMode;
 
   const onExpand = () => {
     drawerRef.current && drawerRef.current.focus();
@@ -147,7 +150,11 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
 
   const handleClose = () => {
     setSelectedThreadId(null);
-    setDrawerPinnedOpen(false);
+    if (floatingWidgetMode) {
+      setFloatingWidgetMode(false);
+    } else {
+      setDrawerPinnedOpen(false);
+    }
     setEditingCommentId(null);
     setEditText('');
     setNewCommentText('');
@@ -206,23 +213,12 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     }
   };
 
-  const panelContent = isExpanded ? (
-    <DrawerPanelContent isResizable defaultSize={'500px'} minSize={'300px'}>
-      <DrawerHead>
-        <span tabIndex={isExpanded ? 0 : -1} ref={drawerRef}>
-          <Title headingLevel="h2" size="lg">
-            Feedback
-          </Title>
-        </span>
-        <DrawerActions>
-          <DrawerCloseButton onClick={handleClose} />
-        </DrawerActions>
-      </DrawerHead>
-      <DrawerPanelBody>
+  const panelContent = (
+    <>
         <Tabs
           activeKey={activeTabKey}
           onSelect={(_event, tabKey) => setActiveTabKey(tabKey)}
-          aria-label="Feedback drawer tabs"
+          aria-label="Hale Commenting System drawer tabs"
         >
           <Tab eventKey="details" title={<TabTitleText>Details</TabTitleText>}>
             <div style={{ paddingTop: '1rem' }}>
@@ -498,13 +494,39 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
             </div>
           </Tab>
         </Tabs>
-      </DrawerPanelBody>
+    </>
+  );
+
+  if (floatingWidgetMode && isExpanded) {
+    return (
+      <>
+        <FloatingWidget onClose={handleClose} title="Hale Commenting System">
+          <div style={{ padding: '1rem' }}>{panelContent}</div>
+        </FloatingWidget>
+        <div style={{ position: 'relative' }}>{children}</div>
+      </>
+    );
+  }
+
+  const drawerPanelContent = isExpanded ? (
+    <DrawerPanelContent isResizable defaultSize={'500px'} minSize={'300px'}>
+      <DrawerHead>
+        <span tabIndex={isExpanded ? 0 : -1} ref={drawerRef}>
+          <Title headingLevel="h2" size="lg">
+            Hale Commenting System
+          </Title>
+        </span>
+        <DrawerActions>
+          <DrawerCloseButton onClick={handleClose} />
+        </DrawerActions>
+      </DrawerHead>
+      <DrawerPanelBody>{panelContent}</DrawerPanelBody>
     </DrawerPanelContent>
   ) : null;
 
   return (
     <Drawer isExpanded={isExpanded} isInline onExpand={onExpand}>
-      <DrawerContent panelContent={panelContent}>
+      <DrawerContent panelContent={drawerPanelContent}>
         <DrawerContentBody style={{ position: 'relative' }}>{children}</DrawerContentBody>
       </DrawerContent>
     </Drawer>

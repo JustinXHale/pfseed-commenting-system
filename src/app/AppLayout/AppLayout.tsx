@@ -18,7 +18,7 @@ import {
   Switch,
 } from '@patternfly/react-core';
 import { IAppRoute, IAppRouteGroup, routes } from '@app/routes';
-import { BarsIcon, GithubIcon } from '@patternfly/react-icons';
+import { BarsIcon, GithubIcon, ExternalLinkAltIcon } from '@patternfly/react-icons';
 import { useComments, CommentOverlay, CommentPanel, useGitHubAuth } from '@app/commenting-system';
 
 interface IAppLayout {
@@ -27,7 +27,7 @@ interface IAppLayout {
 
 const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
-  const { commentsEnabled, setCommentsEnabled, drawerPinnedOpen, setDrawerPinnedOpen } = useComments();
+  const { commentsEnabled, setCommentsEnabled, drawerPinnedOpen, setDrawerPinnedOpen, floatingWidgetMode, setFloatingWidgetMode } = useComments();
   const { isAuthenticated, user, login, logout } = useGitHubAuth();
   const masthead = (
     <Masthead>
@@ -109,9 +109,24 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
         <NavExpandable
           key={`${group.label}-${groupIndex}`}
           id={`${group.label}-${groupIndex}`}
-          title={group.label}
+          title="Hale Commenting System"
           isActive={group.routes.some((route) => route.path === location.pathname)}
         >
+          <NavItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setFloatingWidgetMode(!floatingWidgetMode);
+              if (!floatingWidgetMode) {
+                setDrawerPinnedOpen(false); // Close drawer if opening floating widget
+              }
+            }}
+            style={{ cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <ExternalLinkAltIcon />
+              <span>{floatingWidgetMode ? 'Close widget' : 'Pop out'}</span>
+            </div>
+          </NavItem>
           <NavItem>
             <div
               data-comment-controls

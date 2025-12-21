@@ -8,6 +8,8 @@ interface CommentContextType {
   setCommentsEnabled: (enabled: boolean) => void;
   drawerPinnedOpen: boolean;
   setDrawerPinnedOpen: (open: boolean) => void;
+  floatingWidgetMode: boolean;
+  setFloatingWidgetMode: (mode: boolean) => void;
   addThread: (xPercent: number, yPercent: number, route: string, version?: string) => string;
   addReply: (threadId: string, text: string, parentCommentId?: string) => void;
   syncFromGitHub: (route: string, version?: string) => Promise<void>;
@@ -102,6 +104,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
   const STORAGE_KEY = 'hale_comment_threads_v1';
   const COMMENTS_ENABLED_KEY = 'hale_comments_enabled_v1';
   const DRAWER_PINNED_OPEN_KEY = 'hale_drawer_pinned_open_v1';
+  const FLOATING_WIDGET_MODE_KEY = 'hale_floating_widget_mode_v1';
   const HIDDEN_ISSUES_KEY = 'hale_hidden_issue_numbers_v1';
   const PENDING_CLOSE_ISSUES_KEY = 'hale_pending_close_issue_numbers_v1';
 
@@ -166,6 +169,14 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       return false;
     }
   });
+  const [floatingWidgetMode, setFloatingWidgetMode] = React.useState<boolean>(() => {
+    try {
+      const raw = window.localStorage.getItem(FLOATING_WIDGET_MODE_KEY);
+      return raw === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [syncInFlightCount, setSyncInFlightCount] = React.useState(0);
   const isSyncing = syncInFlightCount > 0;
   const syncInFlightByKey = React.useRef<Map<string, Promise<void>>>(new Map());
@@ -200,6 +211,14 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       // ignore
     }
   }, [drawerPinnedOpen]);
+
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(FLOATING_WIDGET_MODE_KEY, String(floatingWidgetMode));
+    } catch {
+      // ignore
+    }
+  }, [floatingWidgetMode]);
 
   const addThread = (xPercent: number, yPercent: number, route: string, version?: string): string => {
     const threadId = `thread-${Date.now()}`;
@@ -970,6 +989,8 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     setCommentsEnabled,
     drawerPinnedOpen,
     setDrawerPinnedOpen,
+    floatingWidgetMode,
+    setFloatingWidgetMode,
     addThread,
     addReply,
     syncFromGitHub,
