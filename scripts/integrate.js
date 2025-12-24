@@ -1288,14 +1288,40 @@ function modifyAppLayoutTsx(filePath) {
     }
 
     // Step 3: Add the special renderNavGroup logic
-    // Find the renderNavGroup function
-    const renderNavGroupMatch = content.match(/const\s+renderNavGroup\s*=\s*\([^)]+\)\s*=>\s*\{?/);
-    if (renderNavGroupMatch && !content.includes("group.label === 'Comments'")) {
-      const funcStart = content.indexOf(renderNavGroupMatch[0]);
-      const funcStartBrace = content.indexOf('{', funcStart) || content.indexOf('(', funcStart);
+    // Replace the simple arrow function with a block function that has special Comments handling
+    if (!content.includes("group.label === 'Comments'")) {
+      // Find the renderNavGroup function - handle both arrow expression () => (...) and block () => {...}
+      const arrowFuncMatch = content.match(/const\s+renderNavGroup\s*=\s*\(([^)]+)\)\s*=>\s*\(/);
 
-      // Insert the special Comments handling at the start of the function
-      const specialHandling = `
+      if (arrowFuncMatch) {
+        const params = arrowFuncMatch[1];
+
+        // Find the entire function including the closing parenthesis and semicolon
+        const funcStart = content.indexOf(arrowFuncMatch[0]);
+        const afterArrow = funcStart + arrowFuncMatch[0].length;
+
+        // Find matching closing paren and semicolon
+        let depth = 1;
+        let endPos = afterArrow;
+        for (let i = afterArrow; i < content.length; i++) {
+          if (content.charAt(i) === '(') depth++;
+          if (content.charAt(i) === ')') {
+            depth--;
+            if (depth === 0) {
+              // Found the closing paren, now find the semicolon
+              endPos = i + 1;
+              while (endPos < content.length && content.charAt(endPos).trim() === '') endPos++;
+              if (content.charAt(endPos) === ';') endPos++;
+              break;
+            }
+          }
+        }
+
+        // Extract the original NavExpandable JSX (we'll use it as the default case)
+        const originalBody = content.slice(funcStart + arrowFuncMatch[0].length - 1, endPos - 1); // Remove opening ( and closing );
+
+        // Create the new block function
+        const newFunction = `const renderNavGroup = (${params}) => {
     // Special handling for Comments group
     if (group.label === 'Comments') {
       return (
@@ -1381,9 +1407,12 @@ function modifyAppLayoutTsx(filePath) {
     }
 
     // Default handling for other groups
-`;
+    return ${originalBody};
+  };`;
 
-      content = content.slice(0, funcStartBrace + 1) + specialHandling + content.slice(funcStartBrace + 1);
+        // Replace the old function with the new one
+        content = content.slice(0, funcStart) + newFunction + content.slice(endPos);
+      }
     }
 
     // Step 4: Wrap Page children if not already done

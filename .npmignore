@@ -1,0 +1,42 @@
+# Environment files with secrets - never publish
+.env
+.env.server
+.env.*.local
+
+# Development files
+.github/
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+.DS_Store
+
+# Test files
+coverage/
+.nyc_output/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__/
+__snapshots__/
+
+# Source control
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+circle.yml
+
+# Documentation (keep README.md)
+docs/
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+
+# Build artifacts (we want to include src/ for the package)
+dist/
+build/
+node_modules/
