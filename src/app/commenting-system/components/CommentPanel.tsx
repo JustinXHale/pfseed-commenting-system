@@ -1,6 +1,11 @@
 import * as React from 'react';
 import { useLocation } from 'react-router-dom';
 import {
+  ActionList,
+  ActionListItem,
+  Button,
+  Card,
+  CardBody,
   Drawer,
   DrawerActions,
   DrawerCloseButton,
@@ -9,20 +14,15 @@ import {
   DrawerHead,
   DrawerPanelBody,
   DrawerPanelContent,
-  Button,
-  TextArea,
-  Card,
-  CardBody,
-  ActionList,
-  ActionListItem,
-  Title,
-  Tabs,
-  Tab,
-  TabTitleText,
   EmptyState,
   EmptyStateBody,
   Label,
   Spinner,
+  Tab,
+  TabTitleText,
+  Tabs,
+  TextArea,
+  Title,
 } from '@patternfly/react-core';
 import { ExternalLinkAltIcon, GithubIcon, InfoCircleIcon, TrashIcon } from '@patternfly/react-icons';
 import { useComments } from '../contexts/CommentContext';

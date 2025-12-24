@@ -18,8 +18,8 @@ import {
   Switch,
 } from '@patternfly/react-core';
 import { IAppRoute, IAppRouteGroup, routes } from '@app/routes';
-import { BarsIcon, GithubIcon, ExternalLinkAltIcon } from '@patternfly/react-icons';
-import { useComments, CommentOverlay, CommentPanel, useGitHubAuth } from '@app/commenting-system';
+import { BarsIcon, ExternalLinkAltIcon, GithubIcon } from '@patternfly/react-icons';
+import { CommentOverlay, CommentPanel, useComments, useGitHubAuth } from '@app/commenting-system';
 
 interface IAppLayout {
   children: React.ReactNode;

@@ -1,11 +1,15 @@
 {
-  "name": "patternfly-seed",
-  "version": "0.0.2",
-  "description": "An open source build scaffolding utility for web apps.",
+  "name": "hale-commenting-system",
+  "version": "2.2.93",
+  "description": "A commenting system for PatternFly React applications that allows designers and developers to add comments directly on design pages, sync with GitHub Issues, and link Jira tickets.",
   "repository": "https://github.com/patternfly/patternfly-react-seed.git",
-  "homepage": "https://patternfly-react-seed.surge.sh",
+  "homepage": "https://www.npmjs.com/package/hale-commenting-system",
   "license": "MIT",
-  "private": true,
+  "main": "src/app/commenting-system/index.ts",
+  "types": "src/app/commenting-system/index.ts",
+  "bin": {
+    "hale-commenting-system": "./scripts/integrate.js"
+  },
   "scripts": {
     "prebuild": "npm run type-check && npm run clean",
     "build": "webpack --config webpack.prod.js",
@@ -68,9 +72,15 @@
     "webpack-merge": "^6.0.1"
   },
   "dependencies": {
+    "@babel/generator": "^7.23.0",
+    "@babel/parser": "^7.23.0",
+    "@babel/traverse": "^7.23.0",
+    "@babel/types": "^7.23.0",
     "@patternfly/react-core": "^6.4.0",
     "@patternfly/react-icons": "^6.4.0",
     "@patternfly/react-styles": "^6.4.0",
+    "inquirer": "^8.2.6",
+    "node-fetch": "^2.7.0",
     "react": "^18",
     "react-dom": "^18",
     "sirv-cli": "^3.0.0"

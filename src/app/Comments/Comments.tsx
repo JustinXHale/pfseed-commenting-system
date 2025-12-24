@@ -1,17 +1,17 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  PageSection,
-  Title,
+  Button,
   Card,
   CardBody,
-  TextInput,
-  Button,
   InputGroup,
   InputGroupItem,
   InputGroupText,
+  PageSection,
+  TextInput,
+  Title,
 } from '@patternfly/react-core';
-import { SearchIcon, AngleDownIcon, AngleRightIcon } from '@patternfly/react-icons';
+import { AngleDownIcon, AngleRightIcon, SearchIcon } from '@patternfly/react-icons';
 import { useComments } from '@app/commenting-system';
 
 const Comments: React.FunctionComponent = () => {

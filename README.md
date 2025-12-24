@@ -1,109 +1,134 @@
-# Patternfly Seed
+# Hale Commenting System
 
-Patternfly Seed is an open source build scaffolding utility for web apps. The primary purpose of this project is to give developers a jump start when creating new projects that will use patternfly. A secondary purpose of this project is to serve as a reference for how to configure various aspects of an application that uses patternfly, webpack, react, typescript, etc.
+A commenting system for PatternFly React applications that allows designers and developers to add comments directly on design pages, sync with GitHub Issues, and link Jira tickets.
 
-Out of the box you'll get an app layout with chrome (header/sidebar), routing, build pipeline, test suite, and some code quality tools. Basically, all the essentials.
+## Features
 
-<img width="1058" alt="Out of box dashboard view of patternfly seed" src="https://github.com/user-attachments/assets/0227b366-67f1-4df8-8d92-e8e95d6e08b3" />
+- **Pin-based commenting** - Click anywhere on a page to add a comment pin
+- **Thread discussions** - Organize comments into threads with replies
+- **GitHub Integration** - Sync comments with GitHub Issues automatically
+- **Jira Integration** - Link Jira tickets to specific pages or sections
+- **PatternFly Design** - Built with PatternFly React components
+- **Responsive** - Works on desktop and mobile devices
+- **Easy Integration** - Automated setup script for seamless installation
 
-## Quick-start
+## Installation
 
 ```bash
-git clone https://github.com/patternfly/patternfly-react-seed
-cd patternfly-react-seed
-npm install && npm run start:dev
+npm install hale-commenting-system
 ```
-## Development scripts
-```sh
-# Install development/build dependencies
+
+## Quick Start
+
+1. **Install the package:**
+   ```bash
+   npm install hale-commenting-system
+   ```
+
+2. **Run the integration script:**
+   ```bash
+   npx hale-commenting-system init
+   ```
+
+3. **Follow the interactive setup:**
+   - The script will guide you through project setup
+   - Optionally configure GitHub OAuth integration
+   - Optionally configure Jira integration
+   - Configuration files (`.env` and `.env.server`) will be created automatically
+
+4. **Start your dev server:**
+   ```bash
+   npm run start:dev
+   ```
+
+## Usage
+
+After running the integration script, the commenting system will be available in your PatternFly React Seed application.
+
+### Adding Comments
+
+- **Click anywhere** on a page to add a comment pin
+- **View all comments** in the "Comments" menu item in the sidebar
+- **Reply to comments** to create discussion threads
+- **Navigate to pins** using the "Go to pin" button in the comments view
+
+### GitHub Integration (Optional)
+
+When configured, comments automatically sync with GitHub Issues:
+- Each comment thread becomes a GitHub Issue
+- Replies sync as Issue comments
+- Status changes (open/closed) sync between the app and GitHub
+
+### Jira Integration (Optional)
+
+When configured, you can:
+- Link Jira tickets to specific pages or sections
+- View ticket details in the commenting panel
+- Track design work alongside development tickets
+
+## Configuration
+
+The integration script creates two configuration files:
+
+### `.env`
+Contains client-side configuration (safe to commit):
+- GitHub OAuth client ID
+- Jira base URL
+- Other public configuration
+
+### `.env.server`
+Contains server-side secrets (should NOT be committed):
+- GitHub OAuth client secret
+- Jira API tokens
+- Other sensitive credentials
+
+**Important:** The `.env.server` file is automatically added to `.gitignore` to prevent committing secrets.
+
+See the generated files for detailed setup instructions.
+
+## Requirements
+
+- **PatternFly React Seed** project (or compatible PatternFly React application)
+- **Node.js 18+** (required for webpack middleware with native `fetch()` support)
+- **React 18+**
+
+## What Gets Integrated
+
+The integration script automatically modifies your project:
+
+1. **`src/app/index.tsx`** - Adds `CommentProvider` and `GitHubAuthProvider`
+2. **`src/app/routes.tsx`** - Adds "Comments" route group with "View all" route
+3. **`src/app/AppLayout/AppLayout.tsx`** - Adds `CommentPanel` and `CommentOverlay` components
+4. **`webpack.dev.js`** - Adds middleware for GitHub OAuth and Jira API proxying
+5. **`src/app/Comments/Comments.tsx`** - Creates the Comments view component
+6. **`.env` and `.env.server`** - Creates configuration files
+
+## Development
+
+### Running Locally
+
+```bash
+# Install dependencies
 npm install
 
-# Start the development server
+# Start development server
 npm run start:dev
+```
 
-# Run a production build (outputs to "dist" dir)
+### Building for Production
+
+```bash
+# Run production build
 npm run build
 
-# Run the test suite
-npm run test
-
-# Run the test suite with coverage
-npm run test:coverage
-
-# Run the linter
-npm run lint
-
-# Run the code formatter
-npm run format
-
-# Launch a tool to inspect the bundle size
-npm run bundle-profile:analyze
-
-# Start the express server (run a production build first)
+# Start production server
 npm run start
 ```
 
-## Configurations
-* [TypeScript Config](./tsconfig.json)
-* [Webpack Config](./webpack.common.js)
-* [Jest Config](./jest.config.js)
-* [Editor Config](./.editorconfig)
+## License
 
-## Raster image support
+MIT
 
-To use an image asset that's shipped with PatternFly core, you'll prefix the paths with "@assets". `@assets` is an alias for the PatternFly assets directory in node_modules.
+## Support
 
-For example:
-```js
-import imgSrc from '@assets/images/g_sizing.png';
-<img src={imgSrc} alt="Some image" />
-```
-
-You can use a similar technique to import assets from your local app, just prefix the paths with "@app". `@app` is an alias for the main src/app directory.
-
-```js
-import loader from '@app/assets/images/loader.gif';
-<img src={loader} alt="Content loading" />
-```
-
-## Vector image support
-Inlining SVG in the app's markup is also possible.
-
-```js
-import logo from '@app/assets/images/logo.svg';
-<span dangerouslySetInnerHTML={{__html: logo}} />
-```
-
-You can also use SVG when applying background images with CSS. To do this, your SVG's must live under a `bgimages` directory (this directory name is configurable in [webpack.common.js](./webpack.common.js#L5)). This is necessary because you may need to use SVG's in several other context (inline images, fonts, icons, etc.) and so we need to be able to differentiate between these usages so the appropriate loader is invoked.
-```css
-body {
-  background: url(./assets/bgimages/img_avatar.svg);
-}
-```
-
-## Adding custom CSS
-When importing CSS from a third-party package for the first time, you may encounter the error `Module parse failed: Unexpected token... You may need an appropriate loader to handle this file typ...`. You need to register the path to the stylesheet directory in [stylePaths.js](./stylePaths.js). We specify these explicitly for performance reasons to avoid webpack needing to crawl through the entire node_modules directory when parsing CSS modules.
-
-## Code quality tools
-* For accessibility compliance, we use [react-axe](https://github.com/dequelabs/react-axe)
-* To keep our bundle size in check, we use [webpack-bundle-analyzer](https://github.com/webpack-contrib/webpack-bundle-analyzer)
-* To keep our code formatting in check, we use [prettier](https://github.com/prettier/prettier)
-* To keep our code logic and test coverage in check, we use [jest](https://github.com/facebook/jest)
-* To ensure code styles remain consistent, we use [eslint](https://eslint.org/)
-
-## Multi environment configuration
-This project uses [dotenv-webpack](https://www.npmjs.com/package/dotenv-webpack) for exposing environment variables to your code. Either export them at the system level like `export MY_ENV_VAR=http://dev.myendpoint.com && npm run start:dev` or simply drop a `.env` file in the root that contains your key-value pairs like below:
-
-```sh
-ENV_1=http://1.myendpoint.com
-ENV_2=http://2.myendpoint.com
-```
-
-
-With that in place, you can use the values in your code like `console.log(process.env.ENV_1);`
-
-### GitHub OAuth / Issues env vars (local dev)
-
-For the commenting system, see `GITHUB_OAUTH_ENV_TEMPLATE.md`.
-
-**Important:** because webpack injects `.env` values into the browser bundle, do **not** put secrets (like OAuth client secrets) into `.env`.
+For issues, questions, or contributions, please visit the [repository](https://github.com/patternfly/patternfly-react-seed).

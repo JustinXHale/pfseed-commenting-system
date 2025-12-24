@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { clearGitHubAuth, getStoredUser, GitHubUser, storeGitHubAuth } from '../services/githubAdapter';
+import { GitHubUser, clearGitHubAuth, getStoredUser, storeGitHubAuth } from '../services/githubAdapter';
 
 interface GitHubAuthContextType {
   user: GitHubUser | null;

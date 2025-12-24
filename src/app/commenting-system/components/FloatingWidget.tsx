@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Card, CardBody, Button, Title } from '@patternfly/react-core';
-import { TimesIcon, GripVerticalIcon, WindowMinimizeIcon } from '@patternfly/react-icons';
+import { Button, Card, CardBody, Title } from '@patternfly/react-core';
+import { GripVerticalIcon, TimesIcon, WindowMinimizeIcon } from '@patternfly/react-icons';
 
 interface FloatingWidgetProps {
   children: React.ReactNode;

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Thread, Comment } from '../types';
-import { githubAdapter, getStoredUser, isGitHubConfigured } from '../services/githubAdapter';
+import { Comment, Thread } from '../types';
+import { getStoredUser, githubAdapter, isGitHubConfigured } from '../services/githubAdapter';
 
 interface CommentContextType {
   threads: Thread[];
@@ -155,18 +155,32 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
   const [commentsEnabled, setCommentsEnabled] = React.useState<boolean>(() => {
     try {
       const raw = window.localStorage.getItem(COMMENTS_ENABLED_KEY);
-      return raw === 'true';
+      // If explicitly set in localStorage, use that value
+      if (raw !== null) {
+        return raw === 'true';
+      }
+      // If not set, default to enabled when GitHub is not configured (standalone mode)
+      // This allows the commenting system to work without GitHub/Jira integration
+      return !isGitHubConfigured();
     } catch {
-      return false;
+      // On error, default to enabled if GitHub is not configured
+      return !isGitHubConfigured();
     }
   });
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
   const [drawerPinnedOpen, setDrawerPinnedOpen] = React.useState<boolean>(() => {
     try {
       const raw = window.localStorage.getItem(DRAWER_PINNED_OPEN_KEY);
-      return raw === 'true';
+      // If explicitly set in localStorage, use that value
+      if (raw !== null) {
+        return raw === 'true';
+      }
+      // If not set, default to open when GitHub is not configured (standalone mode)
+      // This makes the commenting system visible immediately
+      return !isGitHubConfigured();
     } catch {
-      return false;
+      // On error, default to open if GitHub is not configured
+      return !isGitHubConfigured();
     }
   });
   const [floatingWidgetMode, setFloatingWidgetMode] = React.useState<boolean>(() => {
