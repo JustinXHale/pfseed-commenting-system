@@ -1,0 +1,20 @@
+{
+  "section:/support/*": {
+    "designGoal": "test",
+    "primaryGoals": "testing",
+    "keyFeaturesBeingValidated": "test 2",
+    "targetedUsers": "test3",
+    "scope": "section",
+    "anchorRoute": "/support",
+    "updatedAt": "2025-12-19T23:51:29.025Z"
+  },
+  "section://*": {
+    "designGoal": "Make this exciting",
+    "primaryGoals": "Keep them coming back",
+    "keyFeaturesBeingValidated": "Commenting system",
+    "targetedUsers": "UXers",
+    "scope": "section",
+    "anchorRoute": "/",
+    "updatedAt": "2025-12-20T04:32:56.106Z"
+  }
+}
