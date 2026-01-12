@@ -2,7 +2,7 @@
 
 A commenting system for PatternFly React applications that allows designers and developers to add comments directly on design pages, sync with GitHub Issues, and link Jira tickets.
 
-![Default Widget](./screenshots/defaultWidget.png)
+![Default Widget](https://raw.githubusercontent.com/JustinXHale/pfseed-commenting-system/main/screenshots/defaultWidget.png)
 
 ## 🚨 Important: Proper Uninstall Required
 
@@ -92,7 +92,7 @@ npm uninstall hale-commenting-system
 2. **Click** to attach a comment pin - the system detects React components automatically
 3. **View** component details in the panel including name, type, tree path, and props
 
-![Component Details](./screenshots/DesignDetails1.png)
+![Component Details](https://raw.githubusercontent.com/JustinXHale/pfseed-commenting-system/main/screenshots/DesignDetails1.png)
 
 ### Managing Comments
 
@@ -127,7 +127,7 @@ The system uses a **hybrid approach**:
 - View ticket details in the commenting panel
 - Track design work alongside development
 
-![Jira Integration](./screenshots/jira.png)
+![Jira Integration](https://raw.githubusercontent.com/JustinXHale/pfseed-commenting-system/main/screenshots/jira.png)
 
 ## Configuration
 
