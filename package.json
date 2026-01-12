@@ -1,6 +1,6 @@
 {
   "name": "hale-commenting-system",
-  "version": "3.7.1",
+  "version": "3.7.2",
   "description": "A commenting system for PatternFly React applications that allows designers and developers to add comments directly on design pages, sync with GitHub Issues, and link Jira tickets.",
   "homepage": "https://www.npmjs.com/package/hale-commenting-system",
   "license": "MIT",
