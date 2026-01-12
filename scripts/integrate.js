@@ -409,15 +409,34 @@ VITE_JIRA_BASE_URL=
 `;
   }
 
-  // Check if .env exists and append or create
+  // Check if .env exists and update or create
   if (fs.existsSync(envPath)) {
-    const existing = fs.readFileSync(envPath, 'utf-8');
-    // Only add if not already present
-    if (!existing.includes('VITE_GITHUB_CLIENT_ID')) {
-      fs.appendFileSync(envPath, '\n' + envContent);
+    let existing = fs.readFileSync(envPath, 'utf-8');
+
+    if (existing.includes('VITE_GITHUB_CLIENT_ID')) {
+      // Update existing values
+      const lines = existing.split('\n');
+      const updatedLines = lines.map(line => {
+        if (line.startsWith('VITE_GITHUB_CLIENT_ID=')) {
+          return `VITE_GITHUB_CLIENT_ID=${config.github?.clientId || ''}`;
+        }
+        if (line.startsWith('VITE_GITHUB_OWNER=')) {
+          return `VITE_GITHUB_OWNER=${config.owner || ''}`;
+        }
+        if (line.startsWith('VITE_GITHUB_REPO=')) {
+          return `VITE_GITHUB_REPO=${config.repo || ''}`;
+        }
+        if (line.startsWith('VITE_JIRA_BASE_URL=')) {
+          return `VITE_JIRA_BASE_URL=${config.jira?.baseUrl || ''}`;
+        }
+        return line;
+      });
+      fs.writeFileSync(envPath, updatedLines.join('\n'));
       console.log('   ✅ Updated .env file');
     } else {
-      console.log('   ⚠️  .env already contains commenting system config');
+      // Append if commenting system config not present
+      fs.appendFileSync(envPath, '\n' + envContent);
+      console.log('   ✅ Updated .env file');
     }
   } else {
     fs.writeFileSync(envPath, envContent);
@@ -455,6 +474,7 @@ GITHUB_CLIENT_SECRET=
   }
 
   if (config.jira && config.jira.apiToken) {
+    const trimmedToken = String(config.jira.apiToken || '').trim();
     envServerContent += `# Jira API Token (server-only)
 # For Red Hat Jira, generate a Personal Access Token:
 # 1. Visit: https://issues.redhat.com/secure/ViewProfile.jspa
@@ -462,7 +482,7 @@ GITHUB_CLIENT_SECRET=
 # 3. Click "Create token"
 # 4. Give it a name and remove expiration
 # 5. Copy the token
-JIRA_API_TOKEN=${config.jira.apiToken}
+JIRA_API_TOKEN=${trimmedToken}
 `;
   } else {
     envServerContent += `# Jira API Token (server-only)
@@ -477,16 +497,37 @@ JIRA_API_TOKEN=
   }
 
   if (config.jira && config.jira.email) {
-    envServerContent += `JIRA_EMAIL=${config.jira.email}\n`;
+    const trimmedEmail = String(config.jira.email || '').trim();
+    envServerContent += `JIRA_EMAIL=${trimmedEmail}\n`;
   }
 
   if (fs.existsSync(envServerPath)) {
-    const existing = fs.readFileSync(envServerPath, 'utf-8');
-    if (!existing.includes('GITHUB_CLIENT_SECRET')) {
-      fs.appendFileSync(envServerPath, '\n' + envServerContent);
+    let existing = fs.readFileSync(envServerPath, 'utf-8');
+
+    if (existing.includes('GITHUB_CLIENT_SECRET')) {
+      // Update existing values
+      const lines = existing.split('\n');
+      const updatedLines = lines.map(line => {
+        if (line.startsWith('GITHUB_CLIENT_SECRET=')) {
+          const trimmed = String(config.github?.clientSecret || '').trim();
+          return `GITHUB_CLIENT_SECRET=${trimmed}`;
+        }
+        if (line.startsWith('JIRA_API_TOKEN=')) {
+          const trimmed = String(config.jira?.apiToken || '').trim();
+          return `JIRA_API_TOKEN=${trimmed}`;
+        }
+        if (line.startsWith('JIRA_EMAIL=')) {
+          const trimmed = String(config.jira?.email || '').trim();
+          return `JIRA_EMAIL=${trimmed}`;
+        }
+        return line;
+      });
+      fs.writeFileSync(envServerPath, updatedLines.join('\n'));
       console.log('   ✅ Updated .env.server file');
     } else {
-      console.log('   ⚠️  .env.server already contains commenting system config');
+      // Append if commenting system config not present
+      fs.appendFileSync(envServerPath, '\n' + envServerContent);
+      console.log('   ✅ Updated .env.server file');
     }
   } else {
     fs.writeFileSync(envServerPath, envServerContent);
@@ -510,41 +551,6 @@ JIRA_API_TOKEN=
     fs.writeFileSync(gitignorePath, '.env.server\n');
     console.log('   ✅ Created .gitignore with .env.server');
   }
-}
-
-function createCommentsComponent() {
-  const cwd = process.cwd();
-  const commentsDir = path.join(cwd, 'src', 'app', 'Comments');
-  const commentsFile = path.join(commentsDir, 'Comments.tsx');
-
-  // Check if already exists
-  if (fs.existsSync(commentsFile)) {
-    return; // Already exists, skip
-  }
-
-  // Create directory if it doesn't exist
-  if (!fs.existsSync(commentsDir)) {
-    fs.mkdirSync(commentsDir, { recursive: true });
-  }
-
-  // Read the Comments component from the package and modify the import
-  // The file is in the package at src/app/Comments/Comments.tsx
-  const scriptDir = __dirname || path.dirname(require.resolve('./integrate.js'));
-  const packageCommentsFile = path.join(scriptDir, '..', 'src', 'app', 'Comments', 'Comments.tsx');
-  
-  let commentsComponentContent;
-  if (fs.existsSync(packageCommentsFile)) {
-    // Read from package and replace import path
-    commentsComponentContent = fs.readFileSync(packageCommentsFile, 'utf8')
-      .replace(/from ['"]@app\/commenting-system['"]/g, "from 'hale-commenting-system'");
-  } else {
-    // Fallback: create a minimal version (shouldn't happen if package is properly built)
-    console.log('   ⚠️  Comments component not found in package, skipping creation');
-    return;
-  }
-
-  fs.writeFileSync(commentsFile, commentsComponentContent);
-  console.log('   ✅ Created Comments component');
 }
 
 function integrateWebpackMiddleware() {
@@ -572,10 +578,13 @@ function integrateWebpackMiddleware() {
       // Note: Requires Node.js 18+ for native fetch() support
       try {
         const dotenv = require('dotenv');
-        dotenv.config({ path: path.resolve(__dirname, '.env') });
-        dotenv.config({ path: path.resolve(__dirname, '.env.server'), override: true });
+        const envResult = dotenv.config({ path: path.resolve(__dirname, '.env') });
+        const envServerResult = dotenv.config({ path: path.resolve(__dirname, '.env.server'), override: true });
+        if (envServerResult.error && envServerResult.error.code !== 'ENOENT') {
+          console.warn('[Commenting System] Warning loading .env.server:', envServerResult.error.message);
+        }
       } catch (e) {
-        // no-op
+        console.warn('[Commenting System] Warning loading environment files:', e.message);
       }
 
       const express = require('express');
@@ -684,12 +693,13 @@ function integrateWebpackMiddleware() {
           if (!key) return res.status(400).json({ message: 'Missing ?key (e.g. ABC-123)' });
 
           const baseUrl = (process.env.VITE_JIRA_BASE_URL || 'https://issues.redhat.com').replace(/\\/+$/, '');
-          const email = process.env.JIRA_EMAIL;
-          const token = process.env.JIRA_API_TOKEN;
+          const email = (process.env.JIRA_EMAIL || '').trim();
+          const token = (process.env.JIRA_API_TOKEN || '').trim();
 
           if (!token) {
+            console.error('[Commenting System] JIRA_API_TOKEN is missing or empty. Check .env.server file.');
             return res.status(500).json({
-              message: 'Missing JIRA_API_TOKEN. For local dev, put it in .env.server (gitignored).',
+              message: 'Missing JIRA_API_TOKEN. For local dev, put it in .env.server (gitignored). Make sure the dev server was restarted after creating/updating .env.server.',
             });
           }
 
@@ -1035,19 +1045,13 @@ function modifyIndexTsx(filePath) {
   }
 }
 
-function modifyRoutesTsx(filePath) {
+function modifyAppLayoutTsx(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
-  
-  // Check if Comments route already exists with actual routes
-  // Use a more sophisticated check that looks for the route path
-  if (content.includes("label: 'Comments'") || content.includes('label: "Comments"')) {
-    // Check if it has routes with the /comments path
-    if (content.includes("path: '/comments'") || content.includes('path: "/comments"')) {
-      console.log('   ⚠️  Already integrated (Comments route found)');
-      return false;
-    }
-    // If Comments group exists but has no routes, continue to add them
-    console.log('   ℹ️  Comments group exists but has no routes, adding route...');
+
+  // Check if already integrated
+  if (content.includes('CommentPanel') && content.includes('CommentOverlay')) {
+    console.log('   ⚠️  Already integrated (CommentPanel and CommentOverlay found)');
+    return false;
   }
 
   try {
@@ -1056,104 +1060,79 @@ function modifyRoutesTsx(filePath) {
       plugins: ['typescript', 'jsx', 'decorators-legacy', 'classProperties']
     });
 
-    let routesArray = null;
+    let hasCommentingImport = false;
 
+    // Check if commenting system imports exist
     traverse(ast, {
-      VariableDeclarator(path) {
-        if (path.node.id.name === 'routes' && path.node.init.type === 'ArrayExpression') {
-          routesArray = path.node.init;
+      ImportDeclaration(path) {
+        const source = path.node.source.value;
+        if (source.includes('hale-commenting-system')) {
+          hasCommentingImport = true;
         }
       }
     });
 
-    if (routesArray) {
-      // Check if Comments component is imported
-      let hasCommentsImport = false;
-      let commentsImportName = 'Comments';
-      
-      traverse(ast, {
-        ImportDeclaration(path) {
-          const source = path.node.source.value;
-          if (source.includes('Comments') || source.includes('@app/Comments')) {
-            hasCommentsImport = true;
-            // Get the imported name
-            path.node.specifiers.forEach(spec => {
-              if (spec.type === 'ImportSpecifier' && spec.imported.name === 'Comments') {
-                commentsImportName = spec.local.name;
-              }
-            });
-          }
-        }
-      });
-
-      // Add Comments import if missing
-      if (!hasCommentsImport) {
-        let lastImportIndex = -1;
-        for (let i = ast.program.body.length - 1; i >= 0; i--) {
-          if (ast.program.body[i].type === 'ImportDeclaration') {
-            lastImportIndex = i;
-            break;
-          }
-        }
-        const importIndex = lastImportIndex >= 0 ? lastImportIndex + 1 : 0;
-        
-        const commentsImport = types.importDeclaration(
-          [types.importSpecifier(types.identifier('Comments'), types.identifier('Comments'))],
-          types.stringLiteral('@app/Comments/Comments')
-        );
-        
-        ast.program.body.splice(importIndex, 0, commentsImport);
-      }
-
-      // Check if Comments route group already exists
-      let existingCommentsGroup = null;
-      let existingCommentsRoutes = null;
-      
-      for (const element of routesArray.elements) {
-        if (element.type === 'ObjectExpression') {
-          const labelProp = element.properties.find(
-            prop => prop.key && prop.key.name === 'label' && 
-            prop.value && prop.value.value === 'Comments'
-          );
-          if (labelProp) {
-            existingCommentsGroup = element;
-            const routesProp = element.properties.find(
-              prop => prop.key && prop.key.name === 'routes'
-            );
-            if (routesProp && routesProp.value.type === 'ArrayExpression') {
-              existingCommentsRoutes = routesProp.value;
-            }
-            break;
-          }
+    // Add imports if missing
+    if (!hasCommentingImport) {
+      let lastImportIndex = -1;
+      for (let i = ast.program.body.length - 1; i >= 0; i--) {
+        if (ast.program.body[i].type === 'ImportDeclaration') {
+          lastImportIndex = i;
+          break;
         }
       }
+      const importIndex = lastImportIndex >= 0 ? lastImportIndex + 1 : 0;
 
-      // Create the Comments route item
-      const commentsRouteElement = types.jsxElement(
-        types.jsxOpeningElement(types.jsxIdentifier(commentsImportName), [], true),
-        null,
-        []
+      const commentingImport = types.importDeclaration(
+        [
+          types.importSpecifier(types.identifier('CommentPanel'), types.identifier('CommentPanel')),
+          types.importSpecifier(types.identifier('CommentOverlay'), types.identifier('CommentOverlay'))
+        ],
+        types.stringLiteral('hale-commenting-system')
       );
 
-      const commentsRouteItem = types.objectExpression([
-        types.objectProperty(types.identifier('element'), commentsRouteElement),
-        types.objectProperty(types.identifier('exact'), types.booleanLiteral(true)),
-        types.objectProperty(types.identifier('label'), types.stringLiteral('View all')),
-        types.objectProperty(types.identifier('path'), types.stringLiteral('/comments')),
-        types.objectProperty(types.identifier('title'), types.stringLiteral('Hale Commenting System | Comments'))
-      ]);
+      ast.program.body.splice(importIndex, 0, commentingImport);
+    }
 
-      if (existingCommentsGroup && existingCommentsRoutes) {
-        // Add route to existing Comments group
-        existingCommentsRoutes.elements.push(commentsRouteItem);
-      } else {
-        // Create new Comments route group
-        const commentsRoute = types.objectExpression([
-          types.objectProperty(types.identifier('label'), types.stringLiteral('Comments')),
-          types.objectProperty(types.identifier('routes'), types.arrayExpression([commentsRouteItem]))
-        ]);
-        routesArray.elements.push(commentsRoute);
+    // Find Page component and wrap its children
+    let pageComponentFound = false;
+    traverse(ast, {
+      JSXElement(path) {
+        const openingElement = path.node.openingElement;
+        if (openingElement.name && openingElement.name.name === 'Page') {
+          pageComponentFound = true;
+          const children = path.node.children;
+
+          // Check if already wrapped
+          if (children.length > 0 &&
+              children.some(child =>
+                child.type === 'JSXElement' &&
+                child.openingElement.name.name === 'CommentPanel')) {
+            return;
+          }
+
+          // Create CommentOverlay element
+          const commentOverlay = types.jsxElement(
+            types.jsxOpeningElement(types.jsxIdentifier('CommentOverlay'), [], true),
+            null,
+            []
+          );
+
+          // Create CommentPanel wrapping existing children
+          const commentPanel = types.jsxElement(
+            types.jsxOpeningElement(types.jsxIdentifier('CommentPanel'), []),
+            types.jsxClosingElement(types.jsxIdentifier('CommentPanel')),
+            [commentOverlay, ...children]
+          );
+
+          path.node.children = [commentPanel];
+        }
       }
+    });
+
+    if (!pageComponentFound) {
+      console.error('   ❌ Could not find Page component in AppLayout.tsx');
+      return false;
     }
 
     const output = generate(ast, {
@@ -1162,286 +1141,6 @@ function modifyRoutesTsx(filePath) {
     }, content);
 
     fs.writeFileSync(filePath, output.code);
-    return true;
-  } catch (error) {
-    console.error(`   ❌ Error modifying ${filePath}:`, error.message);
-    return false;
-  }
-}
-
-function modifyAppLayoutTsx(filePath) {
-  let content = fs.readFileSync(filePath, 'utf8');
-
-  // Check if already integrated - look for the comprehensive integration
-  if (content.includes('useComments') && content.includes('useGitHubAuth') &&
-      content.includes('setCommentsEnabled') && content.includes('setFloatingWidgetMode')) {
-    console.log('   ⚠️  Already integrated (full commenting system controls found)');
-    return false;
-  }
-
-  try {
-    // Step 1: Add imports using string manipulation (more reliable for complex imports)
-
-    // Check and add PatternFly imports
-    const patternflyImportRegex = /from\s+['"]@patternfly\/react-core['"]/;
-    const patternflyMatch = content.match(patternflyImportRegex);
-
-    if (patternflyMatch) {
-      // Find the import statement
-      const importMatch = content.match(/import\s+\{([^}]+)\}\s+from\s+['"]@patternfly\/react-core['"]/);
-      if (importMatch) {
-        const imports = importMatch[1];
-        // Add Switch if not present
-        if (!imports.includes('Switch')) {
-          const newImports = imports.trim() + ',\n  Switch';
-          content = content.replace(
-            /import\s+\{([^}]+)\}\s+from\s+['"]@patternfly\/react-core['"]/,
-            `import {${newImports}\n} from '@patternfly/react-core'`
-          );
-        }
-      }
-    }
-
-    // Check and add PatternFly icons imports
-    const iconsImportRegex = /from\s+['"]@patternfly\/react-icons['"]/;
-    const iconsMatch = content.match(iconsImportRegex);
-
-    if (iconsMatch) {
-      const importMatch = content.match(/import\s+\{([^}]+)\}\s+from\s+['"]@patternfly\/react-icons['"]/);
-      if (importMatch) {
-        const imports = importMatch[1];
-        // Add icons if not present
-        let newImports = imports.trim();
-        if (!imports.includes('ExternalLinkAltIcon')) {
-          newImports += ', ExternalLinkAltIcon';
-        }
-        if (!imports.includes('GithubIcon')) {
-          newImports += ', GithubIcon';
-        }
-        if (newImports !== imports.trim()) {
-          content = content.replace(
-            /import\s+\{([^}]+)\}\s+from\s+['"]@patternfly\/react-icons['"]/,
-            `import { ${newImports} } from '@patternfly/react-icons'`
-          );
-        }
-      }
-    }
-
-    // Add commenting system imports
-    if (!content.includes('hale-commenting-system')) {
-      // Find where to insert (after other imports)
-      const lastImportMatch = content.match(/import[^;]*;(?=\s*(?:interface|const|export|function))/g);
-      if (lastImportMatch) {
-        const lastImport = lastImportMatch[lastImportMatch.length - 1];
-        const insertPos = content.indexOf(lastImport) + lastImport.length;
-        const commentingImport = `\nimport { CommentOverlay, CommentPanel, useComments, useGitHubAuth } from "hale-commenting-system";`;
-        content = content.slice(0, insertPos) + commentingImport + content.slice(insertPos);
-      }
-    } else {
-      // Update existing import to include all needed items
-      const commentingImportMatch = content.match(/import\s+\{([^}]+)\}\s+from\s+["']hale-commenting-system["']/);
-      if (commentingImportMatch) {
-        const imports = commentingImportMatch[1];
-        let newImports = imports.split(',').map(i => i.trim());
-
-        const needed = ['CommentOverlay', 'CommentPanel', 'useComments', 'useGitHubAuth'];
-        needed.forEach(item => {
-          if (!newImports.includes(item)) {
-            newImports.push(item);
-          }
-        });
-
-        content = content.replace(
-          /import\s+\{[^}]+\}\s+from\s+["']hale-commenting-system["']/,
-          `import { ${newImports.join(', ')} } from "hale-commenting-system"`
-        );
-      }
-    }
-
-    // Step 2: Add hooks to the component
-    // Find the AppLayout function/component
-    const componentMatch = content.match(/(const\s+AppLayout[^=]+=\s*\([^)]*\)\s*=>\s*\{)/);
-    if (componentMatch) {
-      const componentStart = content.indexOf(componentMatch[0]);
-      const afterComponentStart = componentStart + componentMatch[0].length;
-
-      // Check if hooks are already added
-      if (!content.includes('const { commentsEnabled, setCommentsEnabled')) {
-        // Find where to insert hooks (after existing useState declarations)
-        const stateMatch = content.slice(afterComponentStart).match(/const\s+\[[^\]]+\]\s*=\s*React\.useState/);
-        let hookInsertPos;
-
-        if (stateMatch) {
-          const statePos = content.indexOf(stateMatch[0], afterComponentStart);
-          const semicolonPos = content.indexOf(';', statePos);
-          hookInsertPos = semicolonPos + 1;
-        } else {
-          hookInsertPos = afterComponentStart;
-        }
-
-        const hooks = `
-  const { commentsEnabled, setCommentsEnabled, drawerPinnedOpen, setDrawerPinnedOpen, floatingWidgetMode, setFloatingWidgetMode } = useComments();
-  const { isAuthenticated, user, login, logout } = useGitHubAuth();
-`;
-        content = content.slice(0, hookInsertPos) + hooks + content.slice(hookInsertPos);
-      }
-    }
-
-    // Step 3: Add the special renderNavGroup logic
-    // Replace the simple arrow function with a block function that has special Comments handling
-    if (!content.includes("group.label === 'Comments'")) {
-      // Find the renderNavGroup function - handle both arrow expression () => (...) and block () => {...}
-      const arrowFuncMatch = content.match(/const\s+renderNavGroup\s*=\s*\(([^)]+)\)\s*=>\s*\(/);
-
-      if (arrowFuncMatch) {
-        const params = arrowFuncMatch[1];
-
-        // Find the entire function including the closing parenthesis and semicolon
-        const funcStart = content.indexOf(arrowFuncMatch[0]);
-        const afterArrow = funcStart + arrowFuncMatch[0].length;
-
-        // Find matching closing paren and semicolon
-        let depth = 1;
-        let endPos = afterArrow;
-        for (let i = afterArrow; i < content.length; i++) {
-          if (content.charAt(i) === '(') depth++;
-          if (content.charAt(i) === ')') {
-            depth--;
-            if (depth === 0) {
-              // Found the closing paren, now find the semicolon
-              endPos = i + 1;
-              while (endPos < content.length && content.charAt(endPos).trim() === '') endPos++;
-              if (content.charAt(endPos) === ';') endPos++;
-              break;
-            }
-          }
-        }
-
-        // Extract the original NavExpandable JSX (we'll use it as the default case)
-        const originalBody = content.slice(funcStart + arrowFuncMatch[0].length - 1, endPos - 1); // Remove opening ( and closing );
-
-        // Create the new block function
-        const newFunction = `const renderNavGroup = (${params}) => {
-    // Special handling for Comments group
-    if (group.label === 'Comments') {
-      return (
-        <NavExpandable
-          key={\`\${group.label}-\${groupIndex}\`}
-          id={\`\${group.label}-\${groupIndex}\`}
-          title="Hale Commenting System"
-          isActive={group.routes.some((route) => route.path === location.pathname)}
-        >
-          <NavItem
-            onClick={(e) => {
-              e.stopPropagation();
-              setFloatingWidgetMode(!floatingWidgetMode);
-              if (!floatingWidgetMode) {
-                setDrawerPinnedOpen(false);
-              }
-            }}
-            style={{ cursor: 'pointer' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <ExternalLinkAltIcon />
-              <span>{floatingWidgetMode ? 'Close widget' : 'Pop out'}</span>
-            </div>
-          </NavItem>
-          <NavItem>
-            <div
-              data-comment-controls
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
-            >
-              <span>Enable Comments</span>
-              <Switch
-                id="comments-enabled-switch"
-                isChecked={commentsEnabled}
-                onChange={(_event, checked) => {
-                  setCommentsEnabled(checked);
-                  if (checked) {
-                    setDrawerPinnedOpen(true);
-                  }
-                }}
-                aria-label="Enable or disable comments"
-              />
-            </div>
-          </NavItem>
-          <NavItem>
-            <div
-              data-comment-controls
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
-            >
-              <span>Page info drawer</span>
-              <Switch
-                id="page-info-drawer-switch"
-                isChecked={drawerPinnedOpen}
-                onChange={(_event, checked) => setDrawerPinnedOpen(checked)}
-                aria-label="Pin page info drawer open"
-              />
-            </div>
-          </NavItem>
-          <NavItem>
-            <div
-              data-comment-controls
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
-            >
-              {isAuthenticated ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <GithubIcon />
-                    {user?.login ? \`@\${user.login}\` : 'Signed in'}
-                  </span>
-                  <Button variant="link" isInline onClick={logout}>
-                    Sign out
-                  </Button>
-                </div>
-              ) : (
-                <Button variant="link" isInline icon={<GithubIcon />} onClick={login}>
-                  Sign in with GitHub
-                </Button>
-              )}
-            </div>
-          </NavItem>
-          {group.routes.map((route, idx) => route.label && renderNavItem(route, idx))}
-        </NavExpandable>
-      );
-    }
-
-    // Default handling for other groups
-    return ${originalBody};
-  };`;
-
-        // Replace the old function with the new one
-        content = content.slice(0, funcStart) + newFunction + content.slice(endPos);
-      }
-    }
-
-    // Step 4: Wrap Page children if not already done
-    if (!content.includes('<CommentPanel>')) {
-      // Find the return statement with Page
-      const pageMatch = content.match(/<Page[^>]*>/);
-      if (pageMatch) {
-        const pageStart = content.indexOf(pageMatch[0]);
-        const pageEnd = content.indexOf('</Page>', pageStart);
-
-        if (pageEnd > pageStart) {
-          // Extract children between Page tags
-          const pageOpenTagEnd = content.indexOf('>', pageStart) + 1;
-          const children = content.slice(pageOpenTagEnd, pageEnd);
-
-          // Wrap with CommentPanel and add CommentOverlay
-          const wrappedChildren = `
-      <CommentPanel>
-        <CommentOverlay />
-        ${children.trim()}
-      </CommentPanel>
-    `;
-
-          content = content.slice(0, pageOpenTagEnd) + wrappedChildren + content.slice(pageEnd);
-        }
-      }
-    }
-
-    fs.writeFileSync(filePath, content);
     return true;
   } catch (error) {
     console.error(`   ❌ Error modifying ${filePath}:`, error.message);
@@ -1576,12 +1275,13 @@ async function main() {
       console.log(`\n✅ Detected repository: ${owner}/${repo}\n`);
     }
   } else if (projectSetup === 'cloned') {
-    console.log('\n📝 Since you cloned the repo, you\'ll need to create your own GitHub repository.\n');
-    console.log('Steps:');
+    console.log('\n📝 Since you cloned the repo, you can create your own GitHub repository to store comments.\n');
+    console.log('Note: This is optional! You can test the system locally first and add GitHub integration later.\n');
+    console.log('Steps to create a GitHub repository (optional):');
     console.log('1. Create a new repository on GitHub');
     console.log('2. Add it as a remote: git remote add origin <your-repo-url>');
     console.log('3. Push your code: git push -u origin main\n');
-    
+
     const hasCreated = await prompt([
       {
         type: 'confirm',
@@ -1592,34 +1292,36 @@ async function main() {
     ]);
 
     if (!hasCreated.created) {
-      console.log('\nPlease complete the steps above and run this setup again.');
-      rl.close();
-      return;
+      console.log('\n⏭️  No problem! You can set up the GitHub repository later.');
+      console.log('   The system will still work locally for testing.\n');
+      // Set placeholder values that can be updated later
+      owner = 'YOUR_GITHUB_USERNAME';
+      repo = 'YOUR_REPO_NAME';
+    } else {
+      // Ask for owner/repo
+      const repoAnswers = await prompt([
+        {
+          type: 'input',
+          name: 'owner',
+          message: 'What is your GitHub username or organization name?',
+          validate: (input) => {
+            if (!input.trim()) return 'Owner is required';
+            return true;
+          }
+        },
+        {
+          type: 'input',
+          name: 'repo',
+          message: 'What is the name of your GitHub repository?',
+          validate: (input) => {
+            if (!input.trim()) return 'Repository name is required';
+            return true;
+          }
+        }
+      ]);
+      owner = repoAnswers.owner;
+      repo = repoAnswers.repo;
     }
-
-    // Ask for owner/repo
-    const repoAnswers = await prompt([
-      {
-        type: 'input',
-        name: 'owner',
-        message: 'What is your GitHub username or organization name?',
-        validate: (input) => {
-          if (!input.trim()) return 'Owner is required';
-          return true;
-        }
-      },
-      {
-        type: 'input',
-        name: 'repo',
-        message: 'What is the name of your GitHub repository?',
-        validate: (input) => {
-          if (!input.trim()) return 'Repository name is required';
-          return true;
-        }
-      }
-    ]);
-    owner = repoAnswers.owner;
-    repo = repoAnswers.repo;
   } else if (projectSetup === 'unknown') {
     // Try to detect from git
     if (gitInfo && gitInfo.owner && gitInfo.repo) {
@@ -1705,13 +1407,200 @@ async function main() {
       }
     ]);
 
+    // Ask for target repo to store comments/issues
+    console.log('\nWhere do you want to store comments as GitHub Issues?');
+    console.log('This should be a repository you have write access to.\n');
+
+    let targetOwner, targetRepo;
+
+    // Try to use gh CLI if available
+    let ghAvailable = false;
+    try {
+      execSync('gh auth status', {
+        stdio: 'ignore',
+        timeout: 2000
+      });
+      ghAvailable = true;
+    } catch {
+      // gh CLI not available or not authenticated, will use manual entry
+    }
+
+    if (ghAvailable) {
+      let ghLoopComplete = false;
+
+      while (!ghLoopComplete) {
+        const useGh = await prompt([
+          {
+            type: 'confirm',
+            name: 'use',
+            message: 'GitHub CLI (gh) detected. Would you like to select or create a repository? (required for tracking issues)',
+            default: true
+          }
+        ]);
+
+        if (useGh.use) {
+          try {
+            console.log('   Fetching your repositories...');
+            const reposJson = execSync('gh repo list --json name,owner --limit 100', {
+              encoding: 'utf-8',
+              timeout: 10000,
+              stdio: ['ignore', 'pipe', 'ignore']
+            });
+
+            const repos = JSON.parse(reposJson);
+
+            if (repos && repos.length > 0) {
+              const repoChoices = repos.map(r => ({
+                name: `${r.owner.login}/${r.name}`,
+                value: { owner: r.owner.login, repo: r.name, action: 'select' }
+              }));
+
+              // Add option to create new repo
+              repoChoices.push({
+                name: '→ Create a new repository',
+                value: { action: 'create' }
+              });
+
+              // Add option to enter manually
+              repoChoices.push({
+                name: '→ Enter repository manually',
+                value: { action: 'manual' }
+              });
+
+              // Add option to go back
+              repoChoices.push({
+                name: '← Go back',
+                value: { action: 'back' }
+              });
+
+              const selected = await prompt([
+                {
+                  type: 'list',
+                  name: 'repo',
+                  message: 'Select a repository:',
+                  choices: repoChoices
+                }
+              ]);
+
+              if (selected.repo.action === 'select') {
+                targetOwner = selected.repo.owner;
+                targetRepo = selected.repo.repo;
+                console.log(`   ✓ Selected: ${targetOwner}/${targetRepo}\n`);
+                ghLoopComplete = true;
+              } else if (selected.repo.action === 'create') {
+                // Create new repository
+                console.log('\n📦 Creating a new GitHub repository...\n');
+
+                const newRepoDetails = await prompt([
+                  {
+                    type: 'input',
+                    name: 'name',
+                    message: 'Repository name:',
+                    validate: (input) => {
+                      if (!input.trim()) return 'Repository name is required';
+                      if (!/^[a-zA-Z0-9_.-]+$/.test(input)) return 'Invalid repository name (use letters, numbers, dashes, underscores, or periods)';
+                      return true;
+                    }
+                  },
+                  {
+                    type: 'list',
+                    name: 'visibility',
+                    message: 'Repository visibility:',
+                    choices: [
+                      { name: 'Public', value: 'public' },
+                      { name: 'Private', value: 'private' }
+                    ],
+                    default: 'private'
+                  },
+                  {
+                    type: 'input',
+                    name: 'description',
+                    message: 'Repository description (optional):',
+                    default: 'Comments and issues for design collaboration'
+                  }
+                ]);
+
+                try {
+                  console.log(`   Creating repository: ${newRepoDetails.name}...`);
+                  const createCmd = `gh repo create ${newRepoDetails.name} --${newRepoDetails.visibility}${newRepoDetails.description ? ` --description "${newRepoDetails.description}"` : ''}`;
+                  const createResult = execSync(createCmd, {
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe']
+                  });
+
+                  // Get the authenticated user to determine owner
+                  const userJson = execSync('gh api user --jq ".login"', {
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'ignore']
+                  }).trim();
+
+                  targetOwner = userJson;
+                  targetRepo = newRepoDetails.name;
+                  console.log(`   ✅ Repository created: ${targetOwner}/${targetRepo}\n`);
+                  ghLoopComplete = true;
+                } catch (error) {
+                  console.error(`   ❌ Failed to create repository: ${error.message}`);
+                  console.log('   Please create the repository manually and run the setup again.\n');
+                  rl.close();
+                  process.exit(1);
+                }
+              } else if (selected.repo.action === 'back') {
+                // Go back to previous question - loop will restart
+                console.log('');
+                continue;
+              } else if (selected.repo.action === 'manual') {
+                // Exit loop to use manual entry
+                ghLoopComplete = true;
+              }
+            } else {
+              console.log('   No repositories found. Using manual entry.\n');
+              ghLoopComplete = true;
+            }
+          } catch (error) {
+            console.log('   ⚠️  Error fetching repositories. Using manual entry.\n');
+            ghLoopComplete = true;
+          }
+        } else {
+          // User chose not to use gh CLI
+          ghLoopComplete = true;
+        }
+      }
+    }
+
+    // Manual entry if gh CLI not used or failed
+    if (!targetOwner || !targetRepo) {
+      const repoAnswers = await prompt([
+        {
+          type: 'input',
+          name: 'owner',
+          message: 'GitHub repository owner (username or organization):',
+          validate: (input) => {
+            if (!input.trim()) return 'Owner is required';
+            return true;
+          }
+        },
+        {
+          type: 'input',
+          name: 'repo',
+          message: 'GitHub repository name:',
+          validate: (input) => {
+            if (!input.trim()) return 'Repository name is required';
+            return true;
+          }
+        }
+      ]);
+
+      targetOwner = repoAnswers.owner;
+      targetRepo = repoAnswers.repo;
+    }
+
     // Validate GitHub credentials
     console.log('\n🔍 Validating GitHub credentials...');
     githubValid = await validateGitHubCredentials(
       githubAnswers.clientId,
       githubAnswers.clientSecret,
-      owner,
-      repo
+      targetOwner,
+      targetRepo
     );
 
     if (!githubValid) {
@@ -1724,8 +1613,8 @@ async function main() {
     githubConfig = {
       clientId: githubAnswers.clientId,
       clientSecret: githubAnswers.clientSecret,
-      owner: owner,
-      repo: repo
+      owner: targetOwner,
+      repo: targetRepo
     };
   } else {
     console.log('\n⏭️  Skipping GitHub setup. You can add it later by editing .env and .env.server files.\n');
@@ -1815,30 +1704,23 @@ async function main() {
   generateFiles({
     github: githubConfig,
     jira: jiraConfig,
-    owner: owner,
-    repo: repo
+    owner: githubConfig ? githubConfig.owner : owner,
+    repo: githubConfig ? githubConfig.repo : repo
   });
 
   // Step 5: Integrate into project
   console.log('\n🔧 Step 5: Integrating into PatternFly Seed project...\n');
-  
+
   console.log('This will modify the following files:');
   console.log('  • src/app/index.tsx');
-  console.log('  • src/app/routes.tsx');
   console.log('  • src/app/AppLayout/AppLayout.tsx');
   console.log('  • webpack.dev.js\n');
 
   const indexPath = findFile('index.tsx');
-  const routesPath = findFile('routes.tsx');
   const appLayoutPath = findFile('AppLayout/AppLayout.tsx') || findFile('AppLayout.tsx');
 
   if (!indexPath) {
     console.error('❌ Could not find src/app/index.tsx');
-    rl.close();
-    process.exit(1);
-  }
-  if (!routesPath) {
-    console.error('❌ Could not find src/app/routes.tsx');
     rl.close();
     process.exit(1);
   }
@@ -1857,19 +1739,6 @@ async function main() {
   console.log(`📝 ${indexPath}`);
   if (modifyIndexTsx(indexPath)) {
     console.log('   ✅ Added providers');
-    successCount++;
-  } else {
-    skippedCount++;
-  }
-
-  // Create Comments component first (needed for routes)
-  console.log('\n📝 Creating Comments component...');
-  createCommentsComponent();
-
-  // Modify routes.tsx
-  console.log(`\n📝 ${routesPath}`);
-  if (modifyRoutesTsx(routesPath)) {
-    console.log('   ✅ Added Comments route');
     successCount++;
   } else {
     skippedCount++;
@@ -1903,6 +1772,18 @@ async function main() {
   console.log('1. Start your dev server: npm run start:dev');
   console.log('   (If it\'s already running, restart it to load the new configuration)');
   console.log('2. The commenting system will be available in your app!\n');
+
+  // Check if placeholders were used
+  const hasPlaceholders = owner === 'YOUR_GITHUB_USERNAME' || repo === 'YOUR_REPO_NAME';
+
+  if (hasPlaceholders) {
+    console.log('⚠️  Important: Placeholder values were used for GitHub repository.');
+    console.log('   The UI will work for testing, but comments won\'t sync to GitHub until you:');
+    console.log('   1. Create a GitHub repository');
+    console.log('   2. Update VITE_GITHUB_OWNER and VITE_GITHUB_REPO in .env');
+    console.log('   3. Set up GitHub OAuth (optional - for authentication)');
+    console.log('   4. Restart your dev server\n');
+  }
 
   if (!githubConfig || !jiraConfig) {
     console.log('📝 To add integrations later:');

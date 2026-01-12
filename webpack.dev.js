@@ -32,11 +32,16 @@ module.exports = merge(common('development'), {
       try {
         // eslint-disable-next-line global-require
         const dotenv = require('dotenv');
-        dotenv.config({ path: path.resolve(__dirname, '.env') });
+        const envResult = dotenv.config({ path: path.resolve(__dirname, '.env') });
         // IMPORTANT: allow server-only secrets to override anything accidentally present in `.env` or the shell env.
-        dotenv.config({ path: path.resolve(__dirname, '.env.server'), override: true });
+        const envServerResult = dotenv.config({ path: path.resolve(__dirname, '.env.server'), override: true });
+        if (envServerResult.error && envServerResult.error.code !== 'ENOENT') {
+          // eslint-disable-next-line no-console
+          console.warn('[Commenting System] Warning loading .env.server:', envServerResult.error.message);
+        }
       } catch (e) {
-        // no-op
+        // eslint-disable-next-line no-console
+        console.warn('[Commenting System] Warning loading environment files:', e.message);
       }
 
       // eslint-disable-next-line global-require
@@ -155,13 +160,15 @@ module.exports = merge(common('development'), {
           if (!key) return res.status(400).json({ message: 'Missing ?key (e.g. ABC-123)' });
 
           const baseUrl = (process.env.VITE_JIRA_BASE_URL || 'https://issues.redhat.com').replace(/\/+$/, '');
-          const email = process.env.JIRA_EMAIL;
-          const token = process.env.JIRA_API_TOKEN;
+          const email = (process.env.JIRA_EMAIL || '').trim();
+          const token = (process.env.JIRA_API_TOKEN || '').trim();
 
           if (!token) {
+            // eslint-disable-next-line no-console
+            console.error('[Commenting System] JIRA_API_TOKEN is missing or empty. Check .env.server file.');
             return res.status(500).json({
               message:
-                'Missing JIRA_API_TOKEN. For local dev, put it in .env.server (gitignored).',
+                'Missing JIRA_API_TOKEN. For local dev, put it in .env.server (gitignored). Make sure the dev server was restarted after creating/updating .env.server.',
             });
           }
 

@@ -1,16 +1,18 @@
 import * as React from 'react';
-import { Comment, Thread } from '../types';
+import { Comment, Thread, ComponentMetadata } from '../types';
 import { getStoredUser, githubAdapter, isGitHubConfigured } from '../services/githubAdapter';
 
 interface CommentContextType {
   threads: Thread[];
   commentsEnabled: boolean;
   setCommentsEnabled: (enabled: boolean) => void;
+  showPinsEnabled: boolean;
+  setShowPinsEnabled: (enabled: boolean) => void;
   drawerPinnedOpen: boolean;
   setDrawerPinnedOpen: (open: boolean) => void;
   floatingWidgetMode: boolean;
   setFloatingWidgetMode: (mode: boolean) => void;
-  addThread: (xPercent: number, yPercent: number, route: string, version?: string) => string;
+  addThread: (cssSelector: string, elementDescription: string, componentMetadata: ComponentMetadata | null, xPercent: number, yPercent: number, route: string, version?: string) => string;
   addReply: (threadId: string, text: string, parentCommentId?: string) => void;
   syncFromGitHub: (route: string, version?: string) => Promise<void>;
   retrySync: () => Promise<void>;
@@ -103,6 +105,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
   };
   const STORAGE_KEY = 'hale_comment_threads_v1';
   const COMMENTS_ENABLED_KEY = 'hale_comments_enabled_v1';
+  const SHOW_PINS_ENABLED_KEY = 'hale_show_pins_enabled_v1';
   const DRAWER_PINNED_OPEN_KEY = 'hale_drawer_pinned_open_v1';
   const FLOATING_WIDGET_MODE_KEY = 'hale_floating_widget_mode_v1';
   const HIDDEN_ISSUES_KEY = 'hale_hidden_issue_numbers_v1';
@@ -191,6 +194,14 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       return false;
     }
   });
+  const [showPinsEnabled, setShowPinsEnabled] = React.useState<boolean>(() => {
+    try {
+      const raw = window.localStorage.getItem(SHOW_PINS_ENABLED_KEY);
+      return raw === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [syncInFlightCount, setSyncInFlightCount] = React.useState(0);
   const isSyncing = syncInFlightCount > 0;
   const syncInFlightByKey = React.useRef<Map<string, Promise<void>>>(new Map());
@@ -204,7 +215,9 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+      // Filter out temporary threads before saving to localStorage
+      const persistedThreads = threads.filter(t => !t.isTemporary);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedThreads));
     } catch {
       // ignore quota/serialization errors
     }
@@ -234,7 +247,15 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     }
   }, [floatingWidgetMode]);
 
-  const addThread = (xPercent: number, yPercent: number, route: string, version?: string): string => {
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(SHOW_PINS_ENABLED_KEY, String(showPinsEnabled));
+    } catch {
+      // ignore
+    }
+  }, [showPinsEnabled]);
+
+  const addThread = (cssSelector: string, elementDescription: string, componentMetadata: ComponentMetadata | null, xPercent: number, yPercent: number, route: string, version?: string): string => {
     const threadId = `thread-${Date.now()}`;
     const isConfigured = isGitHubConfigured();
 
@@ -242,6 +263,8 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       threadId,
       route,
       version,
+      cssSelector,
+      elementDescription,
       xPercent: xPercent.toFixed(1),
       yPercent: yPercent.toFixed(1),
       isGitHubConfigured: isConfigured,
@@ -249,20 +272,26 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
 
     const newThread: Thread = {
       id: threadId,
+      cssSelector,
+      elementDescription,
+      componentMetadata: componentMetadata || undefined,
       xPercent,
       yPercent,
       route,
       version,
       comments: [],
       provider: 'github',
-      syncStatus: isConfigured ? 'syncing' : 'local',
+      syncStatus: 'local',
       status: 'open',
+      isTemporary: true, // Mark as temporary until first comment is added
     };
     setThreads((prev) => [...prev, newThread]);
 
-    console.log(`📌 Thread created locally with syncStatus: ${newThread.syncStatus}`);
+    console.log(`📌 Thread created as temporary (will persist when first comment is added)`);
 
-    // Background sync to GitHub (optimistic UI)
+    // Don't sync to GitHub yet - wait for first comment
+    // This prevents creating empty GitHub issues
+    /* Commented out - only sync when comment is added
     if (isConfigured) {
       console.log(`🔵 Creating GitHub issue for thread ${threadId}...`);
 
@@ -319,33 +348,49 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
           console.log(`📌 Thread ${threadId} syncStatus updated to: error (exception caught)`);
         });
     }
+    */
 
     return threadId;
   };
 
-  const parseCoordsFromIssueBody = (body: string): { xPercent: number; yPercent: number } | null => {
-    const match = body.match(/Coordinates:\s*`?\(([\d.]+)%?,\s*([\d.]+)%?\)`?/i);
-    if (!match) return null;
-    const x = Number(match[1]);
-    const y = Number(match[2]);
-    if (Number.isNaN(x) || Number.isNaN(y)) return null;
-    return { xPercent: x, yPercent: y };
-  };
+  const parseMetadataFromIssueBody = (body: string): {
+    cssSelector?: string;
+    elementDescription?: string;
+    xPercent: number;
+    yPercent: number;
+  } => {
+    let cssSelector: string | undefined;
+    let elementDescription: string | undefined;
+    let xPercent = 0;
+    let yPercent = 0;
 
-  const parseCoordsFromIssueLabels = (issue: any): { xPercent: number; yPercent: number } | null => {
-    const labels = issue?.labels;
-    if (!Array.isArray(labels)) return null;
-    const names = labels
-      .map((l: any) => (typeof l === 'string' ? l : l?.name))
-      .filter((n: any) => typeof n === 'string') as string[];
-    const coord = names.find((n) => n.startsWith('coords:'));
-    if (!coord) return null;
-    const raw = coord.replace('coords:', '');
-    const parts = raw.split(',').map((p) => Number(p.trim()));
-    if (parts.length !== 2) return null;
-    const [x, y] = parts;
-    if (Number.isNaN(x) || Number.isNaN(y)) return null;
-    return { xPercent: x, yPercent: y };
+    // Parse CSS Selector
+    const selectorMatch = body.match(/CSS Selector:\s*`([^`]+)`/i);
+    if (selectorMatch) {
+      cssSelector = selectorMatch[1];
+    }
+
+    // Parse Target Component
+    const componentMatch = body.match(/Target Component:\s*`([^`]+)`/i);
+    if (componentMatch) {
+      elementDescription = componentMatch[1];
+    }
+
+    // Parse Fallback Position (new format) or Coordinates (old format)
+    const fallbackMatch = body.match(/Fallback Position:\s*`?\(([\d.]+)%?,\s*([\d.]+)%?\)`?/i);
+    const coordMatch = body.match(/Coordinates:\s*`?\(([\d.]+)%?,\s*([\d.]+)%?\)`?/i);
+
+    const match = fallbackMatch || coordMatch;
+    if (match) {
+      const x = Number(match[1]);
+      const y = Number(match[2]);
+      if (!Number.isNaN(x) && !Number.isNaN(y)) {
+        xPercent = x;
+        yPercent = y;
+      }
+    }
+
+    return { cssSelector, elementDescription, xPercent, yPercent };
   };
 
   const syncFromGitHub = async (route: string, version?: string) => {
@@ -389,10 +434,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
           const issueUrl = issue?.html_url as string | undefined;
           if (!issueNumber) continue;
 
-          const coords =
-            parseCoordsFromIssueBody(issue?.body || '') ||
-            parseCoordsFromIssueLabels(issue) ||
-            { xPercent: 0, yPercent: 0 };
+          const metadata = parseMetadataFromIssueBody(issue?.body || '');
 
           const commentsResult = await githubAdapter.fetchIssueComments(issueNumber);
           const ghComments = commentsResult.success && commentsResult.data ? commentsResult.data : [];
@@ -423,8 +465,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
             id: `gh-${issueNumber}`,
             route,
             version,
-            xPercent: coords.xPercent,
-            yPercent: coords.yPercent,
+            cssSelector: metadata.cssSelector,
+            elementDescription: metadata.elementDescription,
+            xPercent: metadata.xPercent,
+            yPercent: metadata.yPercent,
             comments: mappedComments,
             issueNumber,
             issueUrl,
@@ -457,14 +501,18 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
             };
           });
 
+          // Track which issue numbers were returned from GitHub
+          const githubIssueNumbers = new Set(ghThreads.map(gt => gt.issueNumber).filter((n): n is number => !!n));
+
           // Keep local threads on this route/version that:
           // 1. Don't have an issueNumber yet, OR
-          // 2. Are actively syncing (prevents race condition where issue was created but GitHub API hasn't returned it yet)
+          // 2. Are actively syncing (prevents race condition where issue was created but GitHub API hasn't returned it yet), OR
+          // 3. Have an issueNumber but GitHub didn't return it (preserve existing threads even if GitHub API fails or issue is hidden)
           const localUnlinked = prev.filter(
             (t) =>
               t.route === route &&
               (t.version ?? '1') === (version ?? '1') &&
-              (!t.issueNumber || t.syncStatus === 'syncing'),
+              (!t.issueNumber || t.syncStatus === 'syncing' || !githubIssueNumbers.has(t.issueNumber)),
           );
 
           // Remove duplicates: if a thread is both in localUnlinked and merged, prefer the merged version
@@ -521,6 +569,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
         return {
           ...thread,
           comments: [...thread.comments, newComment],
+          isTemporary: undefined, // Remove temporary flag - thread now persists
         };
       }),
     );
@@ -544,8 +593,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
         if (!ensuredIssueNumber) {
           const created = await githubAdapter.createIssue({
             title: `Feedback: ${thread.route}`,
-            body: `Thread created from pin at (${thread.xPercent.toFixed(1)}%, ${thread.yPercent.toFixed(1)}%).`,
+            body: `Thread created from pin${thread.elementDescription ? ` on ${thread.elementDescription}` : ''}.`,
             route: thread.route,
+            cssSelector: thread.cssSelector,
+            elementDescription: thread.elementDescription,
             xPercent: thread.xPercent,
             yPercent: thread.yPercent,
             version: thread.version,
@@ -936,8 +987,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
         setThreads((prev) => prev.map((x) => (x.id === t.id ? { ...x, syncStatus: 'syncing', syncError: undefined } : x)));
         const created = await githubAdapter.createIssue({
           title: `Feedback: ${t.route}`,
-          body: `Thread created from pin at (${t.xPercent.toFixed(1)}%, ${t.yPercent.toFixed(1)}%).`,
+          body: `Thread created from pin${t.elementDescription ? ` on ${t.elementDescription}` : ''}.`,
           route: t.route,
+          cssSelector: t.cssSelector,
+          elementDescription: t.elementDescription,
           xPercent: t.xPercent,
           yPercent: t.yPercent,
           version: t.version,
@@ -1001,6 +1054,8 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     threads,
     commentsEnabled,
     setCommentsEnabled,
+    showPinsEnabled,
+    setShowPinsEnabled,
     drawerPinnedOpen,
     setDrawerPinnedOpen,
     floatingWidgetMode,

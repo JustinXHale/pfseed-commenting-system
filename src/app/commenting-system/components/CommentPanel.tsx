@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { findElementBySelector } from '../utils/selectorUtils';
 import { useLocation } from 'react-router-dom';
 import {
   ActionList,
@@ -6,14 +7,6 @@ import {
   Button,
   Card,
   CardBody,
-  Drawer,
-  DrawerActions,
-  DrawerCloseButton,
-  DrawerContent,
-  DrawerContentBody,
-  DrawerHead,
-  DrawerPanelBody,
-  DrawerPanelContent,
   EmptyState,
   EmptyStateBody,
   Label,
@@ -40,10 +33,6 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     getThreadsForRoute,
     selectedThreadId,
     setSelectedThreadId,
-    drawerPinnedOpen,
-    setDrawerPinnedOpen,
-    floatingWidgetMode,
-    setFloatingWidgetMode,
     addReply,
     updateComment,
     deleteComment,
@@ -59,28 +48,18 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
   const [replyTextByCommentId, setReplyTextByCommentId] = React.useState<Record<string, string>>({});
   const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
   const [editText, setEditText] = React.useState('');
-  const drawerRef = React.useRef<HTMLSpanElement>(null);
   const [activeTabKey, setActiveTabKey] = React.useState<string | number>('comments');
 
   const currentThreads = getThreadsForRoute(location.pathname, detectedVersion);
   const selectedThread = currentThreads.find((t) => t.id === selectedThreadId);
-  const isExpanded = !!selectedThreadId || drawerPinnedOpen || floatingWidgetMode;
-
-  const onExpand = () => {
-    drawerRef.current && drawerRef.current.focus();
-  };
 
   React.useEffect(() => {
     if (selectedThreadId) {
       setActiveTabKey('comments');
-    }
-  }, [selectedThreadId]);
-
-  React.useEffect(() => {
-    if (drawerPinnedOpen && !selectedThreadId) {
+    } else {
       setActiveTabKey('details');
     }
-  }, [drawerPinnedOpen, selectedThreadId]);
+  }, [selectedThreadId]);
 
   const handleAddComment = () => {
     if (newCommentText.trim() && selectedThread) {
@@ -143,18 +122,17 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     }
   };
 
-  const handleRemovePin = () => {
+  const handleRemovePin = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     if (!selectedThread) return;
     removePin(selectedThread.id);
   };
 
   const handleClose = () => {
     setSelectedThreadId(null);
-    if (floatingWidgetMode) {
-      setFloatingWidgetMode(false);
-    } else {
-      setDrawerPinnedOpen(false);
-    }
     setEditingCommentId(null);
     setEditText('');
     setNewCommentText('');
@@ -221,30 +199,84 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
           aria-label="Hale Commenting System drawer tabs"
         >
           <Tab eventKey="details" title={<TabTitleText>Details</TabTitleText>}>
-            <div style={{ paddingTop: '1rem' }}>
+            <div style={{ padding: '1rem' }}>
               <DetailsTab />
             </div>
           </Tab>
           <Tab eventKey="jira" title={<TabTitleText>Jira</TabTitleText>}>
-            <div style={{ paddingTop: '1rem' }}>
+            <div style={{ padding: '1rem' }}>
               <JiraTab />
             </div>
           </Tab>
           <Tab eventKey="comments" title={<TabTitleText>Comments</TabTitleText>}>
-            <div style={{ paddingTop: '1rem' }}>
+            <div style={{ padding: '1rem' }}>
               {!selectedThread ? (
                 <EmptyState icon={InfoCircleIcon} titleText="No pin selected" headingLevel="h3">
                   <EmptyStateBody>Select or create a comment pin to start a thread.</EmptyStateBody>
                 </EmptyState>
               ) : (
                 <>
-                  {/* Thread summary header (scaffold) */}
+                  {/* Thread summary header with component information */}
                   <Card style={{ marginBottom: '1rem' }}>
                     <CardBody>
-                      <div style={{ display: 'grid', gap: '0.5rem' }}>
-                        <div style={{ fontSize: '0.875rem' }}>
-                          <strong>Location:</strong> ({selectedThread.xPercent.toFixed(1)}%, {selectedThread.yPercent.toFixed(1)}%)
-                        </div>
+                      <div style={{ display: 'grid', gap: '0.75rem' }}>
+                        {/* Component Information (Component-Based) */}
+                        {selectedThread.componentMetadata ? (
+                          <div style={{ display: 'grid', gap: '0.5rem', padding: '0.75rem', backgroundColor: 'var(--pf-t--global--background--color--secondary--default)', borderRadius: 'var(--pf-t--global--border--radius--small)' }}>
+                            <div style={{ fontSize: '0.875rem', fontWeight: 'bold' }}>
+                              React Component
+                            </div>
+                            <div style={{ fontSize: '0.875rem' }}>
+                              <strong>Name:</strong> {selectedThread.componentMetadata.componentName || selectedThread.componentMetadata.displayName || 'Unknown'}
+                              {selectedThread.componentMetadata.componentType && selectedThread.componentMetadata.componentType !== 'native' && (
+                                <span style={{ color: 'var(--pf-t--global--text--color--subtle)', marginLeft: '0.5rem' }}>
+                                  ({selectedThread.componentMetadata.componentType})
+                                </span>
+                              )}
+                            </div>
+                            {selectedThread.componentMetadata.componentPath && selectedThread.componentMetadata.componentPath.length > 0 && (
+                              <div style={{ fontSize: '0.875rem' }}>
+                                <strong>Path:</strong>{' '}
+                                <span style={{ fontFamily: 'monospace', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                                  {selectedThread.componentMetadata.componentPath.join(' > ')}
+                                </span>
+                              </div>
+                            )}
+                            {selectedThread.componentMetadata.props && Object.keys(selectedThread.componentMetadata.props).length > 0 && (
+                              <details style={{ fontSize: '0.875rem' }}>
+                                <summary style={{ cursor: 'pointer', marginBottom: '0.25rem' }}>
+                                  <strong>Props</strong> ({Object.keys(selectedThread.componentMetadata.props).length})
+                                </summary>
+                                <pre
+                                  style={{
+                                    marginTop: '0.5rem',
+                                    padding: '0.5rem',
+                                    backgroundColor: 'var(--pf-t--global--background--color--default)',
+                                    borderRadius: 'var(--pf-t--global--border--radius--small)',
+                                    fontSize: '0.75rem',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                  }}
+                                >
+                                  {JSON.stringify(selectedThread.componentMetadata.props, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                            {selectedThread.cssSelector && !findElementBySelector(selectedThread.cssSelector) && (
+                              <div style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--color--status--danger--default)' }}>
+                                ⚠️ Component element not found in DOM
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.875rem' }}>
+                            <strong>Element:</strong> {selectedThread.elementDescription || 'unknown'}
+                            {selectedThread.cssSelector && !findElementBySelector(selectedThread.cssSelector) && (
+                              <span style={{ color: 'var(--pf-t--global--color--status--danger--default)' }}> [deleted]</span>
+                            )}
+                          </div>
+                        )}
+
                         <div style={{ fontSize: '0.875rem' }}>
                           <strong>Comments:</strong> {selectedThread.comments.length}
                         </div>
@@ -271,10 +303,6 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
                               Issue pending…
                             </span>
                           )}
-                        </div>
-
-                        <div>
-                          {/* AI summarize removed for now */}
                         </div>
                       </div>
                     </CardBody>
@@ -458,7 +486,7 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
                            <Button variant="primary" onClick={handleReopenThread}>
                              Reopen Thread
                            </Button>
-                           <Button variant="link" isDanger onClick={handleRemovePin}>
+                           <Button variant="link" isDanger onClick={handleRemovePin} aria-label="Remove pin">
                              Remove pin
                            </Button>
                          </div>
@@ -482,7 +510,7 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
                           <Button variant="secondary" onClick={handleCloseThread}>
                             Close Thread
                           </Button>
-                           <Button variant="link" isDanger onClick={handleRemovePin}>
+                           <Button variant="link" isDanger onClick={handleRemovePin} aria-label="Remove pin">
                              Remove pin
                            </Button>
                         </div>
@@ -497,38 +525,12 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     </>
   );
 
-  if (floatingWidgetMode && isExpanded) {
-    return (
-      <>
-        <FloatingWidget onClose={handleClose} title="Hale Commenting System">
-          <div style={{ padding: '1rem' }}>{panelContent}</div>
-        </FloatingWidget>
-        <div style={{ position: 'relative' }}>{children}</div>
-      </>
-    );
-  }
-
-  const drawerPanelContent = isExpanded ? (
-    <DrawerPanelContent isResizable defaultSize={'500px'} minSize={'300px'}>
-      <DrawerHead>
-        <span tabIndex={isExpanded ? 0 : -1} ref={drawerRef}>
-          <Title headingLevel="h2" size="lg">
-            Hale Commenting System
-          </Title>
-        </span>
-        <DrawerActions>
-          <DrawerCloseButton onClick={handleClose} />
-        </DrawerActions>
-      </DrawerHead>
-      <DrawerPanelBody>{panelContent}</DrawerPanelBody>
-    </DrawerPanelContent>
-  ) : null;
-
   return (
-    <Drawer isExpanded={isExpanded} isInline onExpand={onExpand}>
-      <DrawerContent panelContent={drawerPanelContent}>
-        <DrawerContentBody style={{ position: 'relative' }}>{children}</DrawerContentBody>
-      </DrawerContent>
-    </Drawer>
+    <>
+      <FloatingWidget title="Hale Commenting System">
+        {panelContent}
+      </FloatingWidget>
+      <div style={{ position: 'relative' }}>{children}</div>
+    </>
   );
 };

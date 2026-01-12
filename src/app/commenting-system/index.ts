@@ -14,4 +14,7 @@ export { FloatingWidget } from './components/FloatingWidget';
 export { githubAdapter, isGitHubConfigured } from './services/githubAdapter';
 
 // Types
-export type { Comment, Thread, SyncStatus, ThreadStatus } from './types';
+export type { Comment, Thread, SyncStatus, ThreadStatus, ComponentMetadata } from './types';
+
+// Utils
+export { getComponentMetadata, getComponentPath, findNearestComponentElement } from './utils/componentUtils';

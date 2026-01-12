@@ -40,7 +40,12 @@ export const GitHubAuthProvider: React.FunctionComponent<{ children: React.React
   }, []);
 
   const login = () => {
-    const clientId = process.env.VITE_GITHUB_CLIENT_ID;
+    let clientId: string | undefined;
+    try {
+      clientId = typeof process !== 'undefined' && process.env ? process.env.VITE_GITHUB_CLIENT_ID : undefined;
+    } catch (e) {
+      clientId = undefined;
+    }
     if (!clientId) {
       // eslint-disable-next-line no-alert
       alert('GitHub login is not configured (missing VITE_GITHUB_CLIENT_ID).');

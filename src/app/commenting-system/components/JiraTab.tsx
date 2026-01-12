@@ -30,7 +30,16 @@ type JiraTicket = {
 };
 
 interface JiraRecord {
-  jiraKey: string;
+  jiraKeys: string[];
+  scope: JiraScope;
+  anchorRoute: string;
+  updatedAt: string;
+}
+
+// Legacy format for backward compatibility
+interface LegacyJiraRecord {
+  jiraKey?: string;
+  jiraKeys?: string[];
   scope: JiraScope;
   anchorRoute: string;
   updatedAt: string;
@@ -38,15 +47,53 @@ interface JiraRecord {
 
 type JiraStore = Record<string, JiraRecord>;
 
+// Jira Issue Cache
+type CachedJiraIssue = {
+  ticket: JiraTicket;
+  fetchedAt: number; // timestamp
+};
+type JiraIssueCache = Record<string, CachedJiraIssue>;
+
 const STORAGE_KEY = 'hale_commenting_jira_v1';
+const CACHE_STORAGE_KEY = 'hale_commenting_jira_cache_v1';
 const GH_JIRA_PATH = '.hale/jira.json';
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+function migrateRecord(record: LegacyJiraRecord): JiraRecord {
+  // If it's already in the new format, return as-is
+  if (Array.isArray(record.jiraKeys)) {
+    return record as JiraRecord;
+  }
+  // Migrate from old format (single jiraKey)
+  if (typeof record.jiraKey === 'string' && record.jiraKey.trim()) {
+    return {
+      jiraKeys: [record.jiraKey.trim()],
+      scope: record.scope,
+      anchorRoute: record.anchorRoute,
+      updatedAt: record.updatedAt,
+    };
+  }
+  // Empty record - return with empty array
+  return {
+    jiraKeys: [],
+    scope: record.scope,
+    anchorRoute: record.anchorRoute,
+    updatedAt: record.updatedAt,
+  };
+}
 
 function safeParseStore(raw: string | null): JiraStore {
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object') return {};
-    return parsed as JiraStore;
+    const store = parsed as Record<string, LegacyJiraRecord>;
+    // Migrate all records to new format
+    const migrated: JiraStore = {};
+    for (const [key, record] of Object.entries(store)) {
+      migrated[key] = migrateRecord(record);
+    }
+    return migrated;
   } catch {
     return {};
   }
@@ -60,6 +107,50 @@ function getStore(): JiraStore {
 function setStore(next: JiraStore) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+}
+
+function getIssueCache(): JiraIssueCache {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(CACHE_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as JiraIssueCache;
+  } catch {
+    return {};
+  }
+}
+
+function setIssueCache(cache: JiraIssueCache) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+}
+
+function getCachedIssue(key: string): JiraTicket | null {
+  const cache = getIssueCache();
+  const cached = cache[key];
+  if (!cached) return null;
+
+  const now = Date.now();
+  const age = now - cached.fetchedAt;
+
+  // Return cached data if it's still fresh
+  if (age < CACHE_TTL_MS) {
+    return cached.ticket;
+  }
+
+  // Expired - remove it
+  delete cache[key];
+  setIssueCache(cache);
+  return null;
+}
+
+function setCachedIssue(key: string, ticket: JiraTicket) {
+  const cache = getIssueCache();
+  cache[key] = {
+    ticket,
+    fetchedAt: Date.now(),
+  };
+  setIssueCache(cache);
 }
 
 function normalizePathname(pathname: string): string {
@@ -86,22 +177,37 @@ function getSectionKey(sectionRoute: string): string {
 function loadForRoute(pathname: string): { record: JiraRecord | null; source: 'page' | 'section' | null } {
   const store = getStore();
   const pageKey = getPageKey(pathname);
-  if (store[pageKey]) return { record: store[pageKey], source: 'page' };
+  if (store[pageKey] && store[pageKey].jiraKeys.length > 0) {
+    return { record: store[pageKey], source: 'page' };
+  }
 
   const sectionRoute = getSectionRoute(pathname);
   const sectionKey = getSectionKey(sectionRoute);
-  if (store[sectionKey]) return { record: store[sectionKey], source: 'section' };
+  if (store[sectionKey] && store[sectionKey].jiraKeys.length > 0) {
+    return { record: store[sectionKey], source: 'section' };
+  }
 
   return { record: null, source: null };
 }
 
-const normalizeJiraKey = (input: string): string => {
+const normalizeJiraKeys = (input: string): string[] => {
   const raw = input.trim();
-  if (!raw) return '';
-  // Allow users to paste full URLs; extract trailing key-ish segment.
-  const m = raw.match(/([A-Z][A-Z0-9]+-\d+)/i);
-  if (m?.[1]) return m[1].toUpperCase();
-  return raw.toUpperCase();
+  if (!raw) return [];
+  
+  // Split by comma, newline, or whitespace, then normalize each
+  const keys = raw
+    .split(/[,\n]+/)
+    .map(k => k.trim())
+    .filter(Boolean)
+    .map(key => {
+      // Allow users to paste full URLs; extract trailing key-ish segment.
+      const m = key.match(/([A-Z][A-Z0-9]+-\d+)/i);
+      if (m?.[1]) return m[1].toUpperCase();
+      return key.toUpperCase();
+    });
+  
+  // Remove duplicates and empty strings
+  return Array.from(new Set(keys.filter(Boolean)));
 };
 
 const stripHtmlTags = (input: string): string => {
@@ -237,9 +343,9 @@ export const JiraTab: React.FunctionComponent = () => {
   const [remoteError, setRemoteError] = React.useState<string | null>(null);
   const remoteShaRef = React.useRef<string | undefined>(undefined);
 
-  const [isFetchingIssue, setIsFetchingIssue] = React.useState(false);
-  const [issueError, setIssueError] = React.useState<string | null>(null);
-  const [issue, setIssue] = React.useState<JiraTicket | null>(null);
+  const [isFetchingIssues, setIsFetchingIssues] = React.useState(false);
+  const [issues, setIssues] = React.useState<Record<string, JiraTicket>>({});
+  const [issueErrors, setIssueErrors] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
     setResolved(loadForRoute(route));
@@ -286,40 +392,73 @@ export const JiraTab: React.FunctionComponent = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch Jira issue details for the effective key.
+  // Fetch Jira issue details for all keys (with caching).
   React.useEffect(() => {
-    const key = record?.jiraKey?.trim();
-    if (!key) {
-      setIssue(null);
-      setIssueError(null);
+    const keys = record?.jiraKeys || [];
+    if (keys.length === 0) {
+      setIssues({});
+      setIssueErrors({});
       return;
     }
 
     const run = async () => {
-      setIsFetchingIssue(true);
-      setIssueError(null);
-      try {
-        const resp = await fetch(`/api/jira-issue?key=${encodeURIComponent(key)}`);
-        const payload = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-          setIssue(null);
-          const raw = String(payload?.message || `Failed to fetch Jira issue (${resp.status})`);
-          const sanitized = raw.trim().startsWith('<') ? 'Unauthorized or non-JSON response from Jira.' : raw;
-          const hint = payload?.hint ? ` ${String(payload.hint)}` : '';
-          setIssueError(`${sanitized}${hint}`);
-          return;
+      setIsFetchingIssues(true);
+      setIssueErrors({});
+      const results: Record<string, JiraTicket> = {};
+      const errors: Record<string, string> = {};
+
+      // Check cache first
+      const keysToFetch: string[] = [];
+      for (const key of keys) {
+        const cached = getCachedIssue(key);
+        if (cached) {
+          results[key] = cached;
+        } else {
+          keysToFetch.push(key);
         }
-        setIssue(payload as JiraTicket);
-      } catch (e: any) {
-        setIssue(null);
-        setIssueError(e?.message || 'Failed to fetch Jira issue');
-      } finally {
-        setIsFetchingIssue(false);
       }
+
+      // Fetch uncached issues
+      if (keysToFetch.length > 0) {
+        await Promise.all(
+          keysToFetch.map(async (key) => {
+            try {
+              const resp = await fetch(`/api/jira-issue?key=${encodeURIComponent(key)}`);
+              const payload = await resp.json().catch(() => ({}));
+
+              if (!resp.ok) {
+                // Handle rate limiting specially
+                if (resp.status === 429) {
+                  errors[key] = 'Rate limit exceeded. Please wait a few minutes and refresh the page.';
+                  return;
+                }
+
+                const raw = String(payload?.message || `Failed to fetch Jira issue (${resp.status})`);
+                const sanitized = raw.trim().startsWith('<') ? 'Unauthorized or non-JSON response from Jira.' : raw;
+                const hint = payload?.hint ? ` ${String(payload.hint)}` : '';
+                errors[key] = `${sanitized}${hint}`;
+                return;
+              }
+
+              const ticket = payload as JiraTicket;
+              results[key] = ticket;
+
+              // Cache the successful result
+              setCachedIssue(key, ticket);
+            } catch (e: any) {
+              errors[key] = e?.message || 'Failed to fetch Jira issue';
+            }
+          })
+        );
+      }
+
+      setIssues(results);
+      setIssueErrors(errors);
+      setIsFetchingIssues(false);
     };
 
     void run();
-  }, [record?.jiraKey]);
+  }, [record?.jiraKeys]);
 
   const startNew = () => {
     setDraftScope('section');
@@ -330,20 +469,23 @@ export const JiraTab: React.FunctionComponent = () => {
   const startEdit = (mode: 'edit-existing' | 'override-page') => {
     if (mode === 'override-page') {
       setDraftScope('page');
-      setDraftKey(record?.jiraKey ?? '');
+      setDraftKey(record?.jiraKeys.join(', ') ?? '');
       setIsEditing(true);
       return;
     }
 
     const existingScope: JiraScope = record?.scope ?? 'section';
     setDraftScope(existingScope);
-    setDraftKey(record?.jiraKey ?? '');
+    setDraftKey(record?.jiraKeys.join(', ') ?? '');
     setIsEditing(true);
   };
 
   const save = () => {
+    const normalizedKeys = normalizeJiraKeys(draftKey);
+    if (normalizedKeys.length === 0) return;
+
     const next: JiraRecord = {
-      jiraKey: normalizeJiraKey(draftKey),
+      jiraKeys: normalizedKeys,
       scope: draftScope,
       anchorRoute: draftScope === 'section' ? sectionRoute : route,
       updatedAt: new Date().toISOString(),
@@ -450,8 +592,8 @@ export const JiraTab: React.FunctionComponent = () => {
           </Button>
         </div>
 
-        <EmptyState icon={InfoCircleIcon} titleText="No Jira issue linked" headingLevel="h3">
-          <EmptyStateBody>Add a Jira key like <b>ABC-123</b> (or paste a Jira URL).</EmptyStateBody>
+        <EmptyState icon={InfoCircleIcon} titleText="No Jira issues linked" headingLevel="h3">
+          <EmptyStateBody>Add Jira keys like <b>ABC-123</b> (or paste Jira URLs). You can add multiple issues separated by commas or new lines.</EmptyStateBody>
         </EmptyState>
       </div>
     );
@@ -492,23 +634,26 @@ export const JiraTab: React.FunctionComponent = () => {
         <Card>
           <CardBody>
             <Title headingLevel="h4" size="md" style={{ marginBottom: '1rem' }}>
-              Jira issue
+              Jira issues
             </Title>
             <div style={{ display: 'grid', gap: '0.75rem' }}>
               <div>
                 <div style={{ fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-                  <b>Jira key or URL</b>
+                  <b>Jira keys or URLs</b>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--pf-t--global--text--color--subtle)', marginTop: '0.25rem' }}>
+                    Enter multiple keys separated by commas or new lines (e.g., ABC-123, DEF-456)
+                  </div>
                 </div>
                 <TextArea
                   value={draftKey}
                   onChange={(_e, v) => setDraftKey(v)}
-                  aria-label="Jira key or URL"
-                  rows={1}
+                  aria-label="Jira keys or URLs"
+                  rows={3}
                 />
               </div>
 
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
-                <Button variant="primary" onClick={save} isDisabled={!normalizeJiraKey(draftKey)}>
+                <Button variant="primary" onClick={save} isDisabled={normalizeJiraKeys(draftKey).length === 0}>
                   Save
                 </Button>
                 <Button variant="link" onClick={() => setIsEditing(false)}>
@@ -529,19 +674,55 @@ export const JiraTab: React.FunctionComponent = () => {
 
   const scopeLabel =
     source === 'page' ? 'This page' : source === 'section' ? `Section (${sectionRoute}/*)` : null;
-  const key = record.jiraKey || '';
-  const url = issue?.url || (process.env.VITE_JIRA_BASE_URL ? `${process.env.VITE_JIRA_BASE_URL}/browse/${key}` : '');
+  const keys = record.jiraKeys || [];
+  let jiraBaseUrl: string | undefined;
+  try {
+    jiraBaseUrl = typeof process !== 'undefined' && process.env ? process.env.VITE_JIRA_BASE_URL : undefined;
+  } catch (e) {
+    jiraBaseUrl = undefined;
+  }
 
-  const parsedSections = parseJiraTemplateSections(issue?.description || '');
-  const byTitle = new Map(parsedSections.map((s) => [s.title, s.body]));
+  const removeKey = (keyToRemove: string) => {
+    const store = getStore();
+    const storeKey = source === 'page' ? getPageKey(route) : source === 'section' ? getSectionKey(sectionRoute) : null;
+    if (!storeKey || !record) return;
 
-  const summary = issue?.summary || '';
-  const status = issue?.status || '';
-  const priority = issue?.priority || '';
-  const assignee = issue?.assignee || '';
-  const issueType = issue?.issueType || 'Issue';
-  const created = issue?.created ? new Date(issue.created).toLocaleString() : '';
-  const updated = issue?.updated ? new Date(issue.updated).toLocaleString() : '';
+    const updatedKeys = record.jiraKeys.filter(k => k !== keyToRemove);
+    if (updatedKeys.length === 0) {
+      // If no keys left, remove the entire record
+      const { [storeKey]: _removed, ...rest } = store;
+      setStore(rest);
+      setResolved(loadForRoute(route));
+    } else {
+      // Update with remaining keys
+      const updated: JiraRecord = {
+        ...record,
+        jiraKeys: updatedKeys,
+        updatedAt: new Date().toISOString(),
+      };
+      const nextStore = { ...store, [storeKey]: updated };
+      setStore(nextStore);
+      setResolved(loadForRoute(route));
+    }
+
+    if (isGitHubConfigured()) {
+      (async () => {
+        const finalStore = updatedKeys.length === 0
+          ? Object.fromEntries(Object.entries(store).filter(([k]) => k !== storeKey))
+          : { ...store, [storeKey]: { ...record, jiraKeys: updatedKeys, updatedAt: new Date().toISOString() } };
+        const text = JSON.stringify(finalStore, null, 2) + '\n';
+        const message = `chore(jira): remove ${keyToRemove} from ${storeKey}`;
+        const sha = remoteShaRef.current;
+        const write = await githubAdapter.putRepoFile({ path: GH_JIRA_PATH, text, message, sha });
+        if (write.success && write.data?.sha) {
+          remoteShaRef.current = write.data.sha;
+          setRemoteError(null);
+        } else {
+          setRemoteError(write.error || 'Failed to update Jira store in GitHub');
+        }
+      })();
+    }
+  };
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
@@ -576,119 +757,159 @@ export const JiraTab: React.FunctionComponent = () => {
         </div>
       </div>
 
-      <Card>
-        <CardBody>
-          <div style={{ display: 'grid', gap: '1rem' }}>
-            {/* Ticket header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <Label color="blue" isCompact>
-                  {issueType || 'Issue'}
-                </Label>
-                {url ? (
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontWeight: 600 }}
-                  >
-                    {key} <ExternalLinkAltIcon style={{ fontSize: '0.75rem' }} />
-                  </a>
-                ) : (
-                  <span style={{ fontWeight: 600 }}>{key}</span>
-                )}
-              </div>
-            </div>
+      {/* Loading state */}
+      {isFetchingIssues && keys.length > 0 && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Spinner size="sm" /> <span>Fetching Jira details…</span>
+        </div>
+      )}
 
-            {/* Loading / error */}
-            {isFetchingIssue ? (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Spinner size="sm" /> <span>Fetching Jira details…</span>
-              </div>
-            ) : issueError ? (
-              <div style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--danger--color--100)' }}>{issueError}</div>
-            ) : (
-              <>
-                {/* Title */}
-                <Title headingLevel="h3" size="lg" style={{ marginTop: '0.25rem' }}>
-                  {summary || '—'}
-                </Title>
+      {/* Display all issues */}
+      <div style={{ display: 'grid', gap: '1rem' }}>
+        {keys.map((key) => {
+          const issue = issues[key];
+          const error = issueErrors[key];
+          const url = issue?.url || (jiraBaseUrl ? `${jiraBaseUrl}/browse/${key}` : '');
 
-                {/* Chips row */}
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                  <Label color="grey" isCompact>
-                    Status: {status || '—'}
-                  </Label>
-                  <Label color="orange" isCompact>
-                    Priority: {priority || '—'}
-                  </Label>
-                  <Label color="grey" isCompact>
-                    Assignee: {assignee || '—'}
-                  </Label>
-                </div>
+          const parsedSections = issue ? parseJiraTemplateSections(issue.description || '') : [];
+          const byTitle = new Map(parsedSections.map((s) => [s.title, s.body]));
 
-                {/* Dates */}
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
-                  {created && (
-                    <span>
-                      <b>Created:</b> {created}
-                    </span>
-                  )}
-                  {updated && (
-                    <span>
-                      <b>Updated:</b> {updated}
-                    </span>
-                  )}
-                </div>
+          const summary = issue?.summary || '';
+          const status = issue?.status || '';
+          const priority = issue?.priority || '';
+          const assignee = issue?.assignee || '';
+          const issueType = issue?.issueType || 'Issue';
+          const created = issue?.created ? new Date(issue.created).toLocaleString() : '';
+          const updated = issue?.updated ? new Date(issue.updated).toLocaleString() : '';
 
-                <div style={{ height: 1, background: 'var(--pf-t--global--border--color--default)', marginTop: '0.25rem' }} />
-
-                {/* Template sections (preferred) */}
-                {parsedSections.length > 0 ? (
-                  <div style={{ display: 'grid', gap: '1rem' }}>
-                    <div>
-                      <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
-                        Problem statement
-                      </Title>
-                      {renderBulletsOrText(byTitle.get('Problem statement') || '')}
-                    </div>
-                    <div>
-                      <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
-                        Objective
-                      </Title>
-                      {renderBulletsOrText(byTitle.get('Objective') || '')}
-                    </div>
-                    <div>
-                      <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
-                        Definition of Done
-                      </Title>
-                      {renderBulletsOrText(byTitle.get('Definition of Done') || '')}
-                    </div>
-                  </div>
-                ) : (
-                  // Fallback: show the raw description if it doesn't follow the template.
-                  <div>
-                    <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
-                      Description
-                    </Title>
-                    <div style={{ fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
-                      {issue?.description ? stripHtmlTags(issue.description) : (
-                        <span style={{ color: 'var(--pf-t--global--text--color--subtle)' }}>No description</span>
+          return (
+            <Card key={key}>
+              <CardBody>
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                  {/* Ticket header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <Label color="blue" isCompact>
+                        {issueType || 'Issue'}
+                      </Label>
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontWeight: 600 }}
+                        >
+                          {key} <ExternalLinkAltIcon style={{ fontSize: '0.75rem' }} />
+                        </a>
+                      ) : (
+                        <span style={{ fontWeight: 600 }}>{key}</span>
                       )}
                     </div>
+                    {keys.length > 1 && (
+                      <Button variant="link" isDanger onClick={() => removeKey(key)}>
+                        Remove
+                      </Button>
+                    )}
                   </div>
-                )}
-              </>
-            )}
 
-            <div style={{ marginTop: '0.25rem' }}>
-              <Button variant="link" isDanger onClick={remove}>
-                Remove Jira link
-              </Button>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
+                  {/* Error state */}
+                  {error && !isFetchingIssues && (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--danger--color--100)' }}>{error}</div>
+                      {error.includes('Rate limit') && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                          Tip: Jira data is cached for 15 minutes to reduce API calls. Refreshing the page will retry.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Issue details */}
+                  {!error && issue && (
+                    <>
+                      {/* Title */}
+                      <Title headingLevel="h3" size="lg" style={{ marginTop: '0.25rem' }}>
+                        {summary || '—'}
+                      </Title>
+
+                      {/* Chips row */}
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                        <Label color="grey" isCompact>
+                          Status: {status || '—'}
+                        </Label>
+                        <Label color="orange" isCompact>
+                          Priority: {priority || '—'}
+                        </Label>
+                        <Label color="grey" isCompact>
+                          Assignee: {assignee || '—'}
+                        </Label>
+                      </div>
+
+                      {/* Dates */}
+                      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                        {created && (
+                          <span>
+                            <b>Created:</b> {created}
+                          </span>
+                        )}
+                        {updated && (
+                          <span>
+                            <b>Updated:</b> {updated}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ height: 1, background: 'var(--pf-t--global--border--color--default)', marginTop: '0.25rem' }} />
+
+                      {/* Template sections (preferred) */}
+                      {parsedSections.length > 0 ? (
+                        <div style={{ display: 'grid', gap: '1rem' }}>
+                          <div>
+                            <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
+                              Problem statement
+                            </Title>
+                            {renderBulletsOrText(byTitle.get('Problem statement') || '')}
+                          </div>
+                          <div>
+                            <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
+                              Objective
+                            </Title>
+                            {renderBulletsOrText(byTitle.get('Objective') || '')}
+                          </div>
+                          <div>
+                            <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
+                              Definition of Done
+                            </Title>
+                            {renderBulletsOrText(byTitle.get('Definition of Done') || '')}
+                          </div>
+                        </div>
+                      ) : (
+                        // Fallback: show the raw description if it doesn't follow the template.
+                        <div>
+                          <Title headingLevel="h4" size="md" style={{ marginBottom: '0.5rem' }}>
+                            Description
+                          </Title>
+                          <div style={{ fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
+                            {issue?.description ? stripHtmlTags(issue.description) : (
+                              <span style={{ color: 'var(--pf-t--global--text--color--subtle)' }}>No description</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: '0.25rem' }}>
+        <Button variant="link" isDanger onClick={remove}>
+          Remove all Jira links
+        </Button>
+      </div>
     </div>
   );
 };

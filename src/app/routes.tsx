@@ -58,10 +58,6 @@ const routes: AppRouteConfig[] = [
       },
     ],
   },
-  {
-    label: 'Comments',
-    routes: [],
-  },
 ];
 
 const flattenedRoutes: IAppRoute[] = routes.reduce(

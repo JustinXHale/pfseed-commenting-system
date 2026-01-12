@@ -1,42 +1,55 @@
-# Environment files with secrets - never publish
-.env
-.env.server
-.env.*.local
+# Dependencies
+node_modules/
 
-# Development files
-.github/
-.vscode/
-.idea/
-*.log
-npm-debug.log*
-.DS_Store
+# Development files  
+*.md
+!README.md
+!LICENSE
+!GITHUB_OAUTH_ENV_TEMPLATE.md
 
-# Test files
-coverage/
-.nyc_output/
-*.test.ts
-*.test.tsx
-*.spec.ts
-*.spec.tsx
-__tests__/
-__snapshots__/
-
-# Source control
-.git/
-.gitignore
-.gitattributes
-
-# CI/CD
-.travis.yml
-.gitlab-ci.yml
-circle.yml
-
-# Documentation (keep README.md)
-docs/
-CONTRIBUTING.md
-CODE_OF_CONDUCT.md
-
-# Build artifacts (we want to include src/ for the package)
+# Build files
 dist/
 build/
-node_modules/
+stats.json
+
+# Development configs
+.editorconfig
+.eslintrc.js
+.prettierignore
+.prettierrc
+webpack.dev.js
+webpack.common.js
+tsconfig.json
+vitest.config.ts
+stylePaths.js
+webpack.prod.js
+
+# Source files not needed in package
+src/app/Dashboard/
+src/app/NotFound/
+src/app/Settings/
+src/app/Support/
+src/app/app.css
+src/app/app.test.tsx
+src/app/bgimages/
+src/app/utils/
+src/favicon.png
+src/index.tsx
+src/typings.d.ts
+
+# Tests
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# CI
+.github/

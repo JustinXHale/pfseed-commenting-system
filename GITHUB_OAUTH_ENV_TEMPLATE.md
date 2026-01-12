@@ -11,8 +11,8 @@ Create `patternfly-react-seed/.env` (this file is already in `.gitignore`):
 VITE_GITHUB_CLIENT_ID=YOUR_GITHUB_OAUTH_CLIENT_ID
 
 # Target repo for Issues/Comments
-VITE_GITHUB_OWNER=JustinXHale
-VITE_GITHUB_REPO=pfseed-commenting-system
+VITE_GITHUB_OWNER=YOUR_GITHUB_USERNAME
+VITE_GITHUB_REPO=YOUR_REPO_NAME
 ```
 
 ### Server-only secret (local dev)

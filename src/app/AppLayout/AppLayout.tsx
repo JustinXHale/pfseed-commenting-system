@@ -27,7 +27,7 @@ interface IAppLayout {
 
 const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
-  const { commentsEnabled, setCommentsEnabled, drawerPinnedOpen, setDrawerPinnedOpen, floatingWidgetMode, setFloatingWidgetMode } = useComments();
+  const { commentsEnabled, setCommentsEnabled, showPinsEnabled, setShowPinsEnabled, drawerPinnedOpen, setDrawerPinnedOpen, floatingWidgetMode, setFloatingWidgetMode } = useComments();
   const { isAuthenticated, user, login, logout } = useGitHubAuth();
   const masthead = (
     <Masthead>
@@ -151,6 +151,20 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
               data-comment-controls
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
             >
+              <span>Show pins</span>
+              <Switch
+                id="show-pins-switch"
+                isChecked={showPinsEnabled}
+                onChange={(_event, checked) => setShowPinsEnabled(checked)}
+                aria-label="Show or hide comment pins"
+              />
+            </div>
+          </NavItem>
+          <NavItem>
+            <div
+              data-comment-controls
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '1rem' }}
+            >
               <span>Page info drawer</span>
               <Switch
                 id="page-info-drawer-switch"
@@ -237,10 +251,8 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
       sidebar={sidebarOpen && Sidebar}
       skipToContent={PageSkipToContent}
     >
-      <CommentPanel>
-        <CommentOverlay />
-        {children}
-      </CommentPanel>
+      {children}
+      
     </Page>
   );
 };

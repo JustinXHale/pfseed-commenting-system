@@ -1,19 +1,29 @@
 import * as React from 'react';
-import { Button, Card, CardBody, Title } from '@patternfly/react-core';
-import { GripVerticalIcon, TimesIcon, WindowMinimizeIcon } from '@patternfly/react-icons';
+import { createPortal } from 'react-dom';
+import { Button, Switch, Title } from '@patternfly/react-core';
+import { GripVerticalIcon, WindowMinimizeIcon, GithubIcon, ArrowsAltVIcon } from '@patternfly/react-icons';
+import { useComments } from '../contexts/CommentContext';
+import { useGitHubAuth } from '../contexts/GitHubAuthContext';
 
 interface FloatingWidgetProps {
   children: React.ReactNode;
-  onClose: () => void;
   title?: string;
 }
 
-export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ children, onClose, title = 'Hale Commenting System' }) => {
-  const [position, setPosition] = React.useState({ x: window.innerWidth - 520, y: 100 });
+export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ children, title = 'Hale Commenting System' }) => {
+  const [position, setPosition] = React.useState({ x: window.innerWidth - 520, y: 20 });
   const [isDragging, setIsDragging] = React.useState(false);
   const [dragOffset, setDragOffset] = React.useState({ x: 0, y: 0 });
   const [isMinimized, setIsMinimized] = React.useState(false);
+  const [viewportHeight, setViewportHeight] = React.useState(window.innerHeight);
+  const [widgetSize, setWidgetSize] = React.useState({ width: 500, height: window.innerHeight * 0.8 });
+  const [isResizing, setIsResizing] = React.useState(false);
+  const [resizeStart, setResizeStart] = React.useState({ x: 0, y: 0, width: 0, height: 0 });
   const widgetRef = React.useRef<HTMLDivElement>(null);
+  const resizeHandleRef = React.useRef<HTMLDivElement>(null);
+
+  const { commentsEnabled, setCommentsEnabled, showPinsEnabled, setShowPinsEnabled } = useComments();
+  const { isAuthenticated, user, login, logout } = useGitHubAuth();
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!widgetRef.current) return;
@@ -48,29 +58,84 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
     };
   }, [isDragging, dragOffset]);
 
-  // Constrain to viewport but allow dragging header even when partially off-screen
+  // Update viewport height on resize to recalculate constraints
+  React.useEffect(() => {
+    const handleResize = () => {
+      setViewportHeight(window.innerHeight);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Handle resize
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!widgetRef.current) return;
+    const rect = widgetRef.current.getBoundingClientRect();
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: rect.width,
+      height: rect.height,
+    });
+  };
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - resizeStart.x;
+      const deltaY = e.clientY - resizeStart.y;
+      
+      setWidgetSize({
+        width: Math.max(300, Math.min(800, resizeStart.width + deltaX)),
+        height: Math.max(200, Math.min(viewportHeight - 100, resizeStart.height + deltaY)),
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, resizeStart, viewportHeight]);
+
+  // Constrain to viewport but allow moving into topbar area (just keep drag handle accessible)
   const constrainedPosition = React.useMemo(() => {
-    const widgetWidth = 500;
-    const widgetHeight = isMinimized ? 60 : 400;
+    const widgetWidth = widgetSize.width;
+    // Calculate actual widget height
+    const widgetHeight = isMinimized ? 120 : widgetSize.height;
     const maxX = window.innerWidth - 50; // Allow 50px of widget to be visible for dragging
-    const maxY = window.innerHeight - 50;
+    const maxY = viewportHeight - 50;
+    // Allow widget to move into topbar, but keep at least 60px of drag handle visible
+    const minY = -widgetHeight + 60;
     return {
       x: Math.max(-widgetWidth + 50, Math.min(position.x, maxX)),
-      y: Math.max(-widgetHeight + 50, Math.min(position.y, maxY)),
+      y: Math.max(minY, Math.min(position.y, maxY)),
     };
-  }, [position, isMinimized]);
+  }, [position, isMinimized, viewportHeight, widgetSize]);
 
-  return (
+  const widgetContent = (
     <div
       ref={widgetRef}
+      data-floating-widget
       style={{
         position: 'fixed',
         left: `${constrainedPosition.x}px`,
         top: `${constrainedPosition.y}px`,
-        width: '500px',
-        height: isMinimized ? '60px' : '80vh',
-        maxHeight: '80vh',
-        zIndex: 10000,
+        width: `${widgetSize.width}px`,
+        height: isMinimized ? 'fit-content' : `${widgetSize.height}px`,
+        maxHeight: `${viewportHeight - 100}px`,
+        zIndex: 99999,
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
         borderRadius: 'var(--pf-t--global--border--radius--medium)',
         backgroundColor: '#ffffff',
@@ -80,43 +145,94 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
       }}
     >
       <div
-        onMouseDown={handleMouseDown}
         style={{
-          padding: '1rem',
           borderBottom: isMinimized ? 'none' : '1px solid var(--pf-t--global--border--color--default)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'grab',
-          userSelect: 'none',
           backgroundColor: '#ffffff',
           borderRadius: isMinimized ? 'var(--pf-t--global--border--radius--medium)' : 'var(--pf-t--global--border--radius--medium) var(--pf-t--global--border--radius--medium) 0 0',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-          <GripVerticalIcon style={{ color: 'var(--pf-t--global--text--color--subtle)' }} />
-          <Title headingLevel="h2" size="lg">
-            {title}
-          </Title>
+        {/* Title bar with drag handle */}
+        <div
+          onMouseDown={handleMouseDown}
+          style={{
+            padding: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'grab',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+            <GripVerticalIcon style={{ color: 'var(--pf-t--global--text--color--subtle)' }} />
+            <Title headingLevel="h2" size="lg">
+              {title}
+            </Title>
+          </div>
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            <Button
+              variant="plain"
+              icon={<WindowMinimizeIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMinimized(!isMinimized);
+              }}
+              aria-label={isMinimized ? 'Maximize widget' : 'Minimize widget'}
+            />
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.25rem' }}>
-          <Button
-            variant="plain"
-            icon={<WindowMinimizeIcon />}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMinimized(!isMinimized);
+
+        {/* Controls row */}
+        {!isMinimized && (
+          <div
+            style={{
+              padding: '0 1rem 0.75rem 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem',
+              borderBottom: '1px solid var(--pf-t--global--border--color--default)',
             }}
-            aria-label={isMinimized ? 'Maximize widget' : 'Minimize widget'}
-          />
-          <Button variant="plain" icon={<TimesIcon />} onClick={onClose} aria-label="Close widget" />
-        </div>
+          >
+            <Switch
+              id="floating-comments-enabled-switch"
+              label="Enable Comments"
+              isChecked={commentsEnabled}
+              onChange={(_event, checked) => setCommentsEnabled(checked)}
+              aria-label="Enable or disable comments"
+            />
+            <Switch
+              id="floating-show-pins-switch"
+              label="Show pins"
+              isChecked={showPinsEnabled}
+              onChange={(_event, checked) => setShowPinsEnabled(checked)}
+              aria-label="Show or hide comment pins"
+            />
+            <div style={{ flex: 1 }} />
+            {isAuthenticated ? (
+              <>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: 'var(--pf-t--global--font--size--sm)' }}>
+                  <GithubIcon />
+                  {user?.login ? `@${user.login}` : 'Signed in'}
+                </span>
+                <Button variant="link" isInline onClick={logout} style={{ fontSize: 'var(--pf-t--global--font--size--sm)' }}>
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <Button variant="link" isInline icon={<GithubIcon />} onClick={login} style={{ fontSize: 'var(--pf-t--global--font--size--sm)' }}>
+                Sign in with GitHub
+              </Button>
+            )}
+          </div>
+        )}
       </div>
       {!isMinimized && (
         <div
           style={{
-            overflow: 'auto',
-            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            flex: '1 1 0',
+            minHeight: 0,
             backgroundColor: '#ffffff',
             borderRadius: '0 0 var(--pf-t--global--border--radius--medium) var(--pf-t--global--border--radius--medium)',
           }}
@@ -124,7 +240,27 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
           {children}
         </div>
       )}
+      {/* Resize handle */}
+      {!isMinimized && (
+        <div
+          ref={resizeHandleRef}
+          onMouseDown={handleResizeStart}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            right: 0,
+            width: '20px',
+            height: '20px',
+            cursor: 'nwse-resize',
+            background: 'linear-gradient(135deg, transparent 0%, transparent 40%, var(--pf-t--global--border--color--default) 40%, var(--pf-t--global--border--color--default) 45%, transparent 45%, transparent 55%, var(--pf-t--global--border--color--default) 55%, var(--pf-t--global--border--color--default) 60%, transparent 60%)',
+            borderRadius: '0 0 var(--pf-t--global--border--radius--medium) 0',
+          }}
+          aria-label="Resize widget"
+        />
+      )}
     </div>
   );
-};
 
+  // Render widget in a portal to document.body so it floats above ALL page elements
+  return typeof document !== 'undefined' ? createPortal(widgetContent, document.body) : null;
+};

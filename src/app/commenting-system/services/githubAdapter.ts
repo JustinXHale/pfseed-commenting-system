@@ -1,3 +1,5 @@
+import { getEnv } from '../utils/env';
+
 export interface GitHubUser {
   login: string;
   avatar: string;
@@ -31,14 +33,16 @@ export const getStoredUser = (): GitHubUser | null => {
 };
 
 export const isGitHubConfigured = (): boolean => {
-  return Boolean(getStoredToken() && process.env.VITE_GITHUB_OWNER && process.env.VITE_GITHUB_REPO);
+  const owner = getEnv('VITE_GITHUB_OWNER');
+  const repo = getEnv('VITE_GITHUB_REPO');
+  return Boolean(getStoredToken() && owner && repo);
 };
 
 export const diagnoseGitHubSetup = () => {
   const token = getStoredToken();
   const user = getStoredUser();
-  const owner = process.env.VITE_GITHUB_OWNER;
-  const repo = process.env.VITE_GITHUB_REPO;
+  const owner = getEnv('VITE_GITHUB_OWNER');
+  const repo = getEnv('VITE_GITHUB_REPO');
 
   console.log('🔍 GitHub Configuration Diagnostic:');
   console.log('  Token:', token ? `Present (${token.substring(0, 10)}...)` : 'Missing ❌');
@@ -100,8 +104,8 @@ async function githubProxyRequest(method: string, endpoint: string, data?: any):
         4. Token has expired or been revoked
 
         Current config:
-        - Owner: ${process.env.VITE_GITHUB_OWNER}
-        - Repo: ${process.env.VITE_GITHUB_REPO}
+        - Owner: ${getEnv('VITE_GITHUB_OWNER')}
+        - Repo: ${getEnv('VITE_GITHUB_REPO')}
         - Endpoint: ${endpoint}
       `);
     }
@@ -147,20 +151,24 @@ export const githubAdapter = {
     title: string;
     body: string;
     route: string;
+    cssSelector?: string;
+    elementDescription?: string;
     xPercent: number;
     yPercent: number;
     version?: string;
   }): Promise<GitHubResult<{ number: number; html_url: string }>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
 
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
 
     try {
       const metadata = [
         `- Route: \`${params.route}\``,
         params.version ? `- Version: \`${params.version}\`` : null,
-        `- Coordinates: \`(${params.xPercent.toFixed(1)}%, ${params.yPercent.toFixed(1)}%)\``,
+        params.cssSelector ? `- Target Component: \`${params.elementDescription || 'unknown'}\`` : null,
+        params.cssSelector ? `- CSS Selector: \`${params.cssSelector}\`` : null,
+        `- Fallback Position: \`(${params.xPercent.toFixed(1)}%, ${params.yPercent.toFixed(1)}%)\``,
       ]
         .filter(Boolean)
         .join('\n');
@@ -177,8 +185,11 @@ export const githubAdapter = {
         const labels: string[] = [
           'hale-comment',
           `route:${params.route}`,
-          `coords:${Math.round(params.xPercent)},${Math.round(params.yPercent)}`,
         ];
+        if (params.cssSelector && params.elementDescription) {
+          labels.push(`component:${params.elementDescription}`);
+        }
+        labels.push(`coords:${Math.round(params.xPercent)},${Math.round(params.yPercent)}`);
         if (params.version) labels.push(`version:${params.version}`);
         await githubProxyRequest('POST', `/repos/${owner}/${repo}/issues/${data.number}/labels`, { labels });
       } catch {
@@ -193,8 +204,8 @@ export const githubAdapter = {
 
   async createComment(issueNumber: number, body: string): Promise<GitHubResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
 
     try {
       const data = await githubProxyRequest('POST', `/repos/${owner}/${repo}/issues/${issueNumber}/comments`, { body });
@@ -210,8 +221,8 @@ export const githubAdapter = {
 
   async fetchIssuesForRouteAndVersion(route: string, version?: string): Promise<GitHubResult<any[]>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const data = await githubProxyRequest(
         'GET',
@@ -247,8 +258,8 @@ export const githubAdapter = {
 
   async fetchIssueComments(issueNumber: number): Promise<GitHubResult<any[]>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const data = await githubProxyRequest(
         'GET',
@@ -262,8 +273,8 @@ export const githubAdapter = {
 
   async updateComment(commentId: number, body: string): Promise<GitHubResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const data = await githubProxyRequest('PATCH', `/repos/${owner}/${repo}/issues/comments/${commentId}`, { body });
       return { success: true, data };
@@ -274,8 +285,8 @@ export const githubAdapter = {
 
   async deleteComment(commentId: number): Promise<GitHubResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       await githubProxyRequest('DELETE', `/repos/${owner}/${repo}/issues/comments/${commentId}`);
       return { success: true, data: {} };
@@ -286,8 +297,8 @@ export const githubAdapter = {
 
   async closeIssue(issueNumber: number): Promise<GitHubResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const data = await githubProxyRequest('PATCH', `/repos/${owner}/${repo}/issues/${issueNumber}`, { state: 'closed' });
       return { success: true, data };
@@ -298,8 +309,8 @@ export const githubAdapter = {
 
   async reopenIssue(issueNumber: number): Promise<GitHubResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const data = await githubProxyRequest('PATCH', `/repos/${owner}/${repo}/issues/${issueNumber}`, { state: 'open' });
       return { success: true, data };
@@ -310,8 +321,8 @@ export const githubAdapter = {
 
   async getRepoFile(path: string): Promise<GitHubResult<{ text: string; sha: string } | null>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const data = await githubProxyRequest('GET', `/repos/${owner}/${repo}/contents/${encodePath(path)}`);
       const content = typeof data?.content === 'string' ? data.content.replace(/\n/g, '') : '';
@@ -335,8 +346,8 @@ export const githubAdapter = {
     sha?: string;
   }): Promise<GitHubResult<{ sha: string }>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
-    const owner = process.env.VITE_GITHUB_OWNER;
-    const repo = process.env.VITE_GITHUB_REPO;
+    const owner = getEnv('VITE_GITHUB_OWNER');
+    const repo = getEnv('VITE_GITHUB_REPO');
     try {
       const payload: any = {
         message: params.message,

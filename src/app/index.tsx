@@ -9,13 +9,11 @@ import '@app/app.css';
 
 const App: React.FunctionComponent = () => (
   <Router>
-    <GitHubAuthProvider>
-      <CommentProvider>
-        <AppLayout>
-          <AppRoutes />
-        </AppLayout>
-      </CommentProvider>
-    </GitHubAuthProvider>
+    <AppLayout>
+        <AppRoutes />
+      </AppLayout>
+    
+    
   </Router>
 );
 
