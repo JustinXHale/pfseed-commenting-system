@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { Button, Switch, Title } from '@patternfly/react-core';
-import { GripVerticalIcon, WindowMinimizeIcon, GithubIcon, ArrowsAltVIcon } from '@patternfly/react-icons';
+import { Button, Dropdown, DropdownItem, DropdownList, MenuToggle, Switch, Title } from '@patternfly/react-core';
+import { GripVerticalIcon, WindowMinimizeIcon, GithubIcon, GitlabIcon, ArrowsAltVIcon } from '@patternfly/react-icons';
 import { useComments } from '../contexts/CommentContext';
-import { useGitHubAuth } from '../contexts/GitHubAuthContext';
+import { useProviderAuth } from '../contexts/ProviderAuthContext';
 
 interface FloatingWidgetProps {
   children: React.ReactNode;
@@ -23,7 +23,10 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
   const resizeHandleRef = React.useRef<HTMLDivElement>(null);
 
   const { commentsEnabled, setCommentsEnabled, showPinsEnabled, setShowPinsEnabled } = useComments();
-  const { isAuthenticated, user, login, logout } = useGitHubAuth();
+  const { isAuthenticated, user, login, logout, providerType, providerDisplayName, availableProviders } = useProviderAuth();
+  const ProviderIcon = providerType === 'gitlab' ? GitlabIcon : GithubIcon;
+  const [isSignInOpen, setIsSignInOpen] = React.useState(false);
+  const showProviderMenu = availableProviders.length > 1;
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!widgetRef.current) return;
@@ -211,16 +214,58 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
             {isAuthenticated ? (
               <>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: 'var(--pf-t--global--font--size--sm)' }}>
-                  <GithubIcon />
+                  <ProviderIcon />
                   {user?.login ? `@${user.login}` : 'Signed in'}
                 </span>
                 <Button variant="link" isInline onClick={logout} style={{ fontSize: 'var(--pf-t--global--font--size--sm)' }}>
                   Sign out
                 </Button>
               </>
+            ) : showProviderMenu ? (
+              <Dropdown
+                isOpen={isSignInOpen}
+                onSelect={() => setIsSignInOpen(false)}
+                toggle={(toggleRef) => (
+                  <MenuToggle
+                    ref={toggleRef}
+                    variant="plain"
+                    isExpanded={isSignInOpen}
+                    onClick={() => setIsSignInOpen((prev) => !prev)}
+                    style={{ fontSize: 'var(--pf-t--global--font--size--sm)' }}
+                    aria-label="Sign in menu"
+                  >
+                    Sign in
+                  </MenuToggle>
+                )}
+              >
+                <DropdownList>
+                  {availableProviders.includes('github') && (
+                    <DropdownItem
+                      onClick={() => {
+                        setIsSignInOpen(false);
+                        login('github');
+                      }}
+                      icon={<GithubIcon />}
+                    >
+                      Sign in with GitHub
+                    </DropdownItem>
+                  )}
+                  {availableProviders.includes('gitlab') && (
+                    <DropdownItem
+                      onClick={() => {
+                        setIsSignInOpen(false);
+                        login('gitlab');
+                      }}
+                      icon={<GitlabIcon />}
+                    >
+                      Sign in with GitLab
+                    </DropdownItem>
+                  )}
+                </DropdownList>
+              </Dropdown>
             ) : (
-              <Button variant="link" isInline icon={<GithubIcon />} onClick={login} style={{ fontSize: 'var(--pf-t--global--font--size--sm)' }}>
-                Sign in with GitHub
+              <Button variant="link" isInline icon={<ProviderIcon />} onClick={() => login()} style={{ fontSize: 'var(--pf-t--global--font--size--sm)' }}>
+                Sign in with {providerDisplayName}
               </Button>
             )}
           </div>

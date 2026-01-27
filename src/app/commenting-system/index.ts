@@ -1,6 +1,7 @@
 // Contexts
 export { CommentProvider, useComments } from './contexts/CommentContext';
-export { GitHubAuthProvider, useGitHubAuth } from './contexts/GitHubAuthContext';
+export { ProviderAuthProvider, useProviderAuth } from './contexts/ProviderAuthContext';
+export { GitHubAuthProvider, useGitHubAuth } from './contexts/GitHubAuthContext'; // Deprecated - use ProviderAuthProvider instead
 
 // Components
 export { CommentOverlay } from './components/CommentOverlay';

@@ -17,8 +17,9 @@ import {
   TextArea,
   Title,
 } from '@patternfly/react-core';
-import { ExternalLinkAltIcon, GithubIcon, InfoCircleIcon, TrashIcon } from '@patternfly/react-icons';
+import { ExternalLinkAltIcon, GithubIcon, GitlabIcon, InfoCircleIcon, TrashIcon } from '@patternfly/react-icons';
 import { useComments } from '../contexts/CommentContext';
+import { useProviderAuth } from '../contexts/ProviderAuthContext';
 import { DetailsTab } from './DetailsTab';
 import { JiraTab } from './JiraTab';
 import { FloatingWidget } from './FloatingWidget';
@@ -41,6 +42,8 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     removePin,
     retrySync,
   } = useComments();
+  const { providerType } = useProviderAuth();
+  const ProviderIcon = providerType === 'gitlab' ? GitlabIcon : GithubIcon;
   const location = useLocation();
   const detectedVersion = getVersionFromPathOrQuery(location.pathname, location.search);
   const [newCommentText, setNewCommentText] = React.useState('');
@@ -170,7 +173,7 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
     switch (status) {
       case 'synced':
         return (
-          <Label color="green" icon={<GithubIcon />}>
+          <Label color="green" icon={<ProviderIcon />}>
             Synced
           </Label>
         );
@@ -293,13 +296,13 @@ export const CommentPanel: React.FunctionComponent<CommentPanelProps> = ({ child
                               rel="noopener noreferrer"
                               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
                             >
-                              <GithubIcon />
+                              <ProviderIcon />
                               Issue #{selectedThread.issueNumber}
                               <ExternalLinkAltIcon style={{ fontSize: '0.75rem' }} />
                             </a>
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
-                              <GithubIcon />
+                              <ProviderIcon />
                               Issue pending…
                             </span>
                           )}

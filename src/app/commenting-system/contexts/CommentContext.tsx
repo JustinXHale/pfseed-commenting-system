@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Comment, Thread, ComponentMetadata } from '../types';
-import { getStoredUser, githubAdapter, isGitHubConfigured } from '../services/githubAdapter';
+import { getProviderAdapter } from '../services/providerFactory';
+import { getStoredUser } from '../services/githubAdapter';
 
 interface CommentContextType {
   threads: Thread[];
@@ -31,6 +32,8 @@ interface CommentContextType {
 const CommentContext = React.createContext<CommentContextType | undefined>(undefined);
 
 export const CommentProvider: React.FunctionComponent<{ children: React.ReactNode }> = ({ children }) => {
+  const adapter = getProviderAdapter();
+
   const stripHaleReplyMarkers = (body: string): string => {
     // Remove hidden markers we embed for threading reconstruction
     return body
@@ -164,10 +167,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       }
       // If not set, default to enabled when GitHub is not configured (standalone mode)
       // This allows the commenting system to work without GitHub/Jira integration
-      return !isGitHubConfigured();
+      return !adapter.isConfigured();
     } catch {
       // On error, default to enabled if GitHub is not configured
-      return !isGitHubConfigured();
+      return !adapter.isConfigured();
     }
   });
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
@@ -180,10 +183,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       }
       // If not set, default to open when GitHub is not configured (standalone mode)
       // This makes the commenting system visible immediately
-      return !isGitHubConfigured();
+      return !adapter.isConfigured();
     } catch {
       // On error, default to open if GitHub is not configured
-      return !isGitHubConfigured();
+      return !adapter.isConfigured();
     }
   });
   const [floatingWidgetMode, setFloatingWidgetMode] = React.useState<boolean>(() => {
@@ -257,7 +260,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
 
   const addThread = (cssSelector: string, elementDescription: string, componentMetadata: ComponentMetadata | null, xPercent: number, yPercent: number, route: string, version?: string): string => {
     const threadId = `thread-${Date.now()}`;
-    const isConfigured = isGitHubConfigured();
+    const isConfigured = adapter.isConfigured();
 
     console.log('📌 addThread called:', {
       threadId,
@@ -295,7 +298,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     if (isConfigured) {
       console.log(`🔵 Creating GitHub issue for thread ${threadId}...`);
 
-      githubAdapter
+      adapter
         .createIssue({
           title: `Feedback: ${route}`,
           body: `Thread created from pin at (${xPercent.toFixed(1)}%, ${yPercent.toFixed(1)}%).`,
@@ -318,7 +321,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
             const num = result.data.number;
             hiddenIssueNumbersRef.current.add(num);
             writeNumberSet(HIDDEN_ISSUES_KEY, hiddenIssueNumbersRef.current);
-            githubAdapter.closeIssue(num).catch(() => undefined);
+            adapter.closeIssue(num).catch(() => undefined);
             removedThreadIdsRef.current.delete(threadId);
           }
 
@@ -394,7 +397,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
   };
 
   const syncFromGitHub = async (route: string, version?: string) => {
-    if (!isGitHubConfigured()) return;
+    if (!adapter.isConfigured()) return;
 
     const key = `${route}::${version ?? ''}`;
     const existing = syncInFlightByKey.current.get(key);
@@ -417,7 +420,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     const run = (async () => {
       setSyncInFlightCount((c) => c + 1);
       try {
-        const issuesResult = await githubAdapter.fetchIssuesForRouteAndVersion(route, version);
+        const issuesResult = await adapter.fetchIssuesForRouteAndVersion(route, version);
         if (!issuesResult.success || !issuesResult.data) return;
 
         const hidden = hiddenIssueNumbersRef.current;
@@ -436,7 +439,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
 
           const metadata = parseMetadataFromIssueBody(issue?.body || '');
 
-          const commentsResult = await githubAdapter.fetchIssueComments(issueNumber);
+          const commentsResult = await adapter.fetchIssueComments(issueNumber);
           const ghComments = commentsResult.success && commentsResult.data ? commentsResult.data : [];
 
           const mappedComments: Comment[] = (Array.isArray(ghComments) ? ghComments : []).map((c: any) => {
@@ -578,7 +581,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     const thread = threadsRef.current.find((t) => t.id === threadId);
     const issueNumber = thread?.issueNumber;
 
-    if (!isGitHubConfigured() || !thread) return;
+    if (!adapter.isConfigured() || !thread) return;
 
     // If the thread hasn't finished creating its issue yet, create it now, then backfill any local-only comments.
     const ensureIssueAndBackfill = async () => {
@@ -591,7 +594,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
         let ensuredIssueUrl = thread.issueUrl;
 
         if (!ensuredIssueNumber) {
-          const created = await githubAdapter.createIssue({
+          const created = await adapter.createIssue({
             title: `Feedback: ${thread.route}`,
             body: `Thread created from pin${thread.elementDescription ? ` on ${thread.elementDescription}` : ''}.`,
             route: thread.route,
@@ -672,7 +675,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
           }
 
           const body = buildGitHubReplyBody(c.text, resolvedParentGitHubId ? { ...parentForBody, githubCommentId: resolvedParentGitHubId } : parentForBody);
-          const res = await githubAdapter.createComment(ensuredIssueNumber!, body);
+          const res = await adapter.createComment(ensuredIssueNumber!, body);
           if (!res.success || !res.data?.id) {
             throw new Error(res.error || 'Failed to create GitHub comment');
           }
@@ -711,7 +714,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       }
 
       const body = buildGitHubReplyBody(text, parent);
-      githubAdapter
+      adapter
         .createComment(issueNumber, body)
         .then((result) => {
           if (!result.success) throw new Error(result.error || 'Failed to create GitHub comment');
@@ -758,8 +761,8 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       }),
     );
 
-    if (isGitHubConfigured() && issueNumber && githubCommentId) {
-      githubAdapter.updateComment(githubCommentId, text).then((result) => {
+    if (adapter.isConfigured() && issueNumber && githubCommentId) {
+      adapter.updateComment(githubCommentId, text).then((result) => {
         if (result.success) {
           setThreads((prev) =>
             prev.map((t) => (t.id === threadId ? { ...t, syncStatus: 'synced', syncError: undefined } : t)),
@@ -787,7 +790,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       issueNumber,
       githubCommentId,
       hasExistingComment: !!existingComment,
-      isGitHubConfigured: isGitHubConfigured(),
+      isGitHubConfigured: adapter.isConfigured(),
     });
 
     // Remove from local state immediately (optimistic delete)
@@ -804,10 +807,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     );
 
     // Attempt GitHub deletion if applicable
-    if (isGitHubConfigured() && issueNumber && githubCommentId) {
+    if (adapter.isConfigured() && issueNumber && githubCommentId) {
       console.log(`🔵 Attempting to delete GitHub comment #${githubCommentId} on issue #${issueNumber}`);
 
-      githubAdapter.deleteComment(githubCommentId).then((result) => {
+      adapter.deleteComment(githubCommentId).then((result) => {
         if (result.success) {
           console.log(`✅ Successfully deleted GitHub comment #${githubCommentId}`);
           setThreads((prev) =>
@@ -853,7 +856,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
       });
     } else {
       console.log(`ℹ️ GitHub deletion skipped:`, {
-        reason: !isGitHubConfigured()
+        reason: !adapter.isConfigured()
           ? 'GitHub not configured'
           : !issueNumber
           ? 'No issue number'
@@ -878,10 +881,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     // Keep the thread selected so the UI can switch to a "Reopen" state (GitHub-like)
 
     // Sync close to GitHub
-    if (isGitHubConfigured() && issueNumber) {
+    if (adapter.isConfigured() && issueNumber) {
       console.log(`🔵 Closing GitHub issue #${issueNumber}...`);
 
-      githubAdapter.closeIssue(issueNumber).then((result) => {
+      adapter.closeIssue(issueNumber).then((result) => {
         if (result.success) {
           console.log(`✅ Successfully closed GitHub issue #${issueNumber}`);
           setThreads((prev) =>
@@ -913,10 +916,10 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     );
 
     // Sync reopen to GitHub
-    if (isGitHubConfigured() && issueNumber) {
+    if (adapter.isConfigured() && issueNumber) {
       console.log(`🔵 Reopening GitHub issue #${issueNumber}...`);
 
-      githubAdapter.reopenIssue(issueNumber).then((result) => {
+      adapter.reopenIssue(issueNumber).then((result) => {
         if (result.success) {
           console.log(`✅ Successfully reopened GitHub issue #${issueNumber}`);
           setThreads((prev) =>
@@ -944,7 +947,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     setThreads((prev) => prev.filter((t) => t.id !== threadId));
     if (selectedThreadId === threadId) setSelectedThreadId(null);
 
-    if (!isGitHubConfigured()) return;
+    if (!adapter.isConfigured()) return;
 
     if (!issueNumber) {
       // Issue may still be creating; mark so we can close it once we get the number.
@@ -959,7 +962,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
     pendingCloseIssueNumbersRef.current.add(issueNumber);
     writeNumberSet(PENDING_CLOSE_ISSUES_KEY, pendingCloseIssueNumbersRef.current);
 
-    githubAdapter.closeIssue(issueNumber).then((result) => {
+    adapter.closeIssue(issueNumber).then((result) => {
       if (result.success) {
         pendingCloseIssueNumbersRef.current.delete(issueNumber);
         writeNumberSet(PENDING_CLOSE_ISSUES_KEY, pendingCloseIssueNumbersRef.current);
@@ -974,7 +977,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
   };
 
   const retrySync = async () => {
-    if (!isGitHubConfigured()) return;
+    if (!adapter.isConfigured()) return;
     setSyncInFlightCount((c) => c + 1);
     try {
       const current = threadsRef.current;
@@ -985,7 +988,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
         if (t.syncStatus !== 'error' && t.syncStatus !== 'pending' && t.syncStatus !== 'syncing' && t.syncStatus !== 'local') continue;
 
         setThreads((prev) => prev.map((x) => (x.id === t.id ? { ...x, syncStatus: 'syncing', syncError: undefined } : x)));
-        const created = await githubAdapter.createIssue({
+        const created = await adapter.createIssue({
           title: `Feedback: ${t.route}`,
           body: `Thread created from pin${t.elementDescription ? ` on ${t.elementDescription}` : ''}.`,
           route: t.route,
@@ -1021,7 +1024,7 @@ export const CommentProvider: React.FunctionComponent<{ children: React.ReactNod
         setThreads((prev) => prev.map((x) => (x.id === t.id ? { ...x, syncStatus: 'syncing', syncError: undefined } : x)));
 
         for (const c of localOnly) {
-          const res = await githubAdapter.createComment(t.issueNumber, c.text);
+          const res = await adapter.createComment(t.issueNumber, c.text);
           if (res.success && res.data?.id) {
             const newId = res.data.id as number;
             setThreads((prev) =>

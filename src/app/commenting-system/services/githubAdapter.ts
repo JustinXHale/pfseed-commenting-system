@@ -1,4 +1,12 @@
 import { getEnv } from '../utils/env';
+import {
+  IssueProviderAdapter,
+  CreateIssueParams,
+  IssueData,
+  PutRepoFileParams,
+  ProviderResult,
+  ProviderUser,
+} from '../types/provider';
 
 export interface GitHubUser {
   login: string;
@@ -65,6 +73,7 @@ export const diagnoseGitHubSetup = () => {
   };
 };
 
+// Legacy type - use ProviderResult instead
 export interface GitHubResult<T = any> {
   success: boolean;
   data?: T;
@@ -146,17 +155,15 @@ const issueHasAnyVersion = (issue: any): boolean => {
   return body.includes('Version:');
 };
 
-export const githubAdapter = {
-  async createIssue(params: {
-    title: string;
-    body: string;
-    route: string;
-    cssSelector?: string;
-    elementDescription?: string;
-    xPercent: number;
-    yPercent: number;
-    version?: string;
-  }): Promise<GitHubResult<{ number: number; html_url: string }>> {
+/**
+ * GitHub implementation of the IssueProviderAdapter interface
+ */
+export class GitHubAdapter implements IssueProviderAdapter {
+  isConfigured(): boolean {
+    return isGitHubConfigured();
+  }
+
+  async createIssue(params: CreateIssueParams): Promise<ProviderResult<IssueData>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
 
     const owner = getEnv('VITE_GITHUB_OWNER');
@@ -200,9 +207,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to create issue' };
     }
-  },
+  }
 
-  async createComment(issueNumber: number, body: string): Promise<GitHubResult> {
+  async createComment(issueNumber: number, body: string): Promise<ProviderResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -213,13 +220,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to create comment' };
     }
-  },
+  }
 
-  async fetchIssuesForRoute(route: string): Promise<GitHubResult<any[]>> {
-    return githubAdapter.fetchIssuesForRouteAndVersion(route);
-  },
-
-  async fetchIssuesForRouteAndVersion(route: string, version?: string): Promise<GitHubResult<any[]>> {
+  async fetchIssuesForRouteAndVersion(route: string, version?: string): Promise<ProviderResult<any[]>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -254,9 +257,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to fetch issues' };
     }
-  },
+  }
 
-  async fetchIssueComments(issueNumber: number): Promise<GitHubResult<any[]>> {
+  async fetchIssueComments(issueNumber: number): Promise<ProviderResult<any[]>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -269,9 +272,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to fetch issue comments' };
     }
-  },
+  }
 
-  async updateComment(commentId: number, body: string): Promise<GitHubResult> {
+  async updateComment(commentId: number, body: string, _issueNumber?: number): Promise<ProviderResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -281,9 +284,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to update comment' };
     }
-  },
+  }
 
-  async deleteComment(commentId: number): Promise<GitHubResult> {
+  async deleteComment(commentId: number, _issueNumber?: number): Promise<ProviderResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -293,9 +296,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to delete comment' };
     }
-  },
+  }
 
-  async closeIssue(issueNumber: number): Promise<GitHubResult> {
+  async closeIssue(issueNumber: number): Promise<ProviderResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -305,9 +308,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to close issue' };
     }
-  },
+  }
 
-  async reopenIssue(issueNumber: number): Promise<GitHubResult> {
+  async reopenIssue(issueNumber: number): Promise<ProviderResult> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -317,9 +320,9 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to reopen issue' };
     }
-  },
+  }
 
-  async getRepoFile(path: string): Promise<GitHubResult<{ text: string; sha: string } | null>> {
+  async getRepoFile(path: string): Promise<ProviderResult<{ text: string; sha: string } | null>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -337,14 +340,9 @@ export const githubAdapter = {
       }
       return { success: false, error: e?.message || 'Failed to read repo file' };
     }
-  },
+  }
 
-  async putRepoFile(params: {
-    path: string;
-    text: string;
-    message: string;
-    sha?: string;
-  }): Promise<GitHubResult<{ sha: string }>> {
+  async putRepoFile(params: PutRepoFileParams): Promise<ProviderResult<{ sha: string }>> {
     if (!isGitHubConfigured()) return { success: false, error: 'Please sign in with GitHub' };
     const owner = getEnv('VITE_GITHUB_OWNER');
     const repo = getEnv('VITE_GITHUB_REPO');
@@ -364,7 +362,25 @@ export const githubAdapter = {
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to write repo file' };
     }
-  },
+  }
+}
+
+// Export singleton instance for backward compatibility
+const githubAdapterInstance = new GitHubAdapter();
+
+// Legacy export - wraps class methods in object for backward compatibility
+export const githubAdapter = {
+  createIssue: (params: CreateIssueParams) => githubAdapterInstance.createIssue(params),
+  createComment: (issueNumber: number, body: string) => githubAdapterInstance.createComment(issueNumber, body),
+  fetchIssuesForRoute: (route: string) => githubAdapterInstance.fetchIssuesForRouteAndVersion(route),
+  fetchIssuesForRouteAndVersion: (route: string, version?: string) => githubAdapterInstance.fetchIssuesForRouteAndVersion(route, version),
+  fetchIssueComments: (issueNumber: number) => githubAdapterInstance.fetchIssueComments(issueNumber),
+  updateComment: (commentId: number, body: string) => githubAdapterInstance.updateComment(commentId, body),
+  deleteComment: (commentId: number) => githubAdapterInstance.deleteComment(commentId),
+  closeIssue: (issueNumber: number) => githubAdapterInstance.closeIssue(issueNumber),
+  reopenIssue: (issueNumber: number) => githubAdapterInstance.reopenIssue(issueNumber),
+  getRepoFile: (path: string) => githubAdapterInstance.getRepoFile(path),
+  putRepoFile: (params: PutRepoFileParams) => githubAdapterInstance.putRepoFile(params),
 };
 
 

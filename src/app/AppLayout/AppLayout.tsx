@@ -2,11 +2,15 @@ import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Button,
+  Dropdown,
+  DropdownItem,
+  DropdownList,
   Masthead,
   MastheadBrand,
   MastheadLogo,
   MastheadMain,
   MastheadToggle,
+  MenuToggle,
   Nav,
   NavExpandable,
   NavItem,
@@ -18,8 +22,8 @@ import {
   Switch,
 } from '@patternfly/react-core';
 import { IAppRoute, IAppRouteGroup, routes } from '@app/routes';
-import { BarsIcon, ExternalLinkAltIcon, GithubIcon } from '@patternfly/react-icons';
-import { CommentOverlay, CommentPanel, useComments, useGitHubAuth } from '@app/commenting-system';
+import { BarsIcon, ExternalLinkAltIcon, GithubIcon, GitlabIcon } from '@patternfly/react-icons';
+import { CommentOverlay, CommentPanel, useComments, useProviderAuth } from '@app/commenting-system';
 
 interface IAppLayout {
   children: React.ReactNode;
@@ -28,7 +32,10 @@ interface IAppLayout {
 const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const { commentsEnabled, setCommentsEnabled, showPinsEnabled, setShowPinsEnabled, drawerPinnedOpen, setDrawerPinnedOpen, floatingWidgetMode, setFloatingWidgetMode } = useComments();
-  const { isAuthenticated, user, login, logout } = useGitHubAuth();
+  const { isAuthenticated, user, login, logout, providerType, providerDisplayName, availableProviders } = useProviderAuth();
+  const ProviderIcon = providerType === 'gitlab' ? GitlabIcon : GithubIcon;
+  const [isSignInOpen, setIsSignInOpen] = React.useState(false);
+  const showProviderMenu = availableProviders.length > 1;
   const masthead = (
     <Masthead>
       <MastheadMain>
@@ -182,16 +189,57 @@ const AppLayout: React.FunctionComponent<IAppLayout> = ({ children }) => {
               {isAuthenticated ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <GithubIcon />
+                    <ProviderIcon />
                     {user?.login ? `@${user.login}` : 'Signed in'}
                   </span>
                   <Button variant="link" isInline onClick={logout}>
                     Sign out
                   </Button>
                 </div>
+              ) : showProviderMenu ? (
+                <Dropdown
+                  isOpen={isSignInOpen}
+                  onSelect={() => setIsSignInOpen(false)}
+                  toggle={(toggleRef) => (
+                    <MenuToggle
+                      ref={toggleRef}
+                      variant="plain"
+                      isExpanded={isSignInOpen}
+                      onClick={() => setIsSignInOpen((prev) => !prev)}
+                      aria-label="Sign in menu"
+                    >
+                      Sign in
+                    </MenuToggle>
+                  )}
+                >
+                  <DropdownList>
+                    {availableProviders.includes('github') && (
+                      <DropdownItem
+                        onClick={() => {
+                          setIsSignInOpen(false);
+                          login('github');
+                        }}
+                        icon={<GithubIcon />}
+                      >
+                        Sign in with GitHub
+                      </DropdownItem>
+                    )}
+                    {availableProviders.includes('gitlab') && (
+                      <DropdownItem
+                        onClick={() => {
+                          setIsSignInOpen(false);
+                          login('gitlab');
+                        }}
+                        icon={<GitlabIcon />}
+                      >
+                        Sign in with GitLab
+                      </DropdownItem>
+                    )}
+                  </DropdownList>
+                </Dropdown>
               ) : (
-                <Button variant="link" isInline icon={<GithubIcon />} onClick={login}>
-                  Sign in with GitHub
+                <Button variant="link" isInline icon={<ProviderIcon />} onClick={() => login()}>
+                  Sign in with {providerDisplayName}
                 </Button>
               )}
             </div>

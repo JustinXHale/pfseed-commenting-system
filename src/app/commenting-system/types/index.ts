@@ -6,6 +6,7 @@ export interface Comment {
   githubCommentId?: number;
   parentCommentId?: string; // local id of parent comment
   parentGitHubCommentId?: number; // GitHub comment id of parent (if known)
+  issueNumber?: number; // Required for GitLab comment updates/deletes
 }
 
 export type SyncStatus = 'synced' | 'local' | 'pending' | 'syncing' | 'error';
@@ -32,7 +33,7 @@ export interface Thread {
   comments: Comment[];
   issueNumber?: number;
   issueUrl?: string;
-  provider?: 'github';
+  provider?: 'github' | 'gitlab';
   syncStatus?: SyncStatus;
   syncError?: string;
   status?: ThreadStatus; // open or closed (mirrors GitHub issue state)

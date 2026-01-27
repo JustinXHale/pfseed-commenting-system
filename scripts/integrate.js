@@ -369,12 +369,34 @@ function generateFiles(config) {
 
 `;
 
-  if (config.github && config.github.clientId) {
+  // Provider configuration (GitHub or GitLab)
+  if (config.provider && config.provider.type === 'gitlab') {
+    envContent += `# Provider Type
+VITE_PROVIDER_TYPE=gitlab
+
+# GitLab OAuth (client-side; safe to expose)
+VITE_GITLAB_CLIENT_ID=${config.provider.clientId}
+VITE_GITLAB_BASE_URL=${config.provider.baseUrl}
+
+# Target project for Issues/Comments
+VITE_GITLAB_PROJECT_PATH=${config.provider.projectPath}
+
+`;
+  } else if (config.provider && config.provider.type === 'github') {
+    envContent += `# Provider Type
+VITE_PROVIDER_TYPE=github
+
+# GitHub OAuth (client-side; safe to expose)
+VITE_GITHUB_CLIENT_ID=${config.provider.clientId}
+
+# Target repo for Issues/Comments
+VITE_GITHUB_OWNER=${config.provider.owner || config.owner}
+VITE_GITHUB_REPO=${config.provider.repo || config.repo}
+
+`;
+  } else if (config.github && config.github.clientId) {
+    // Backward compatibility: old GitHub-only config
     envContent += `# GitHub OAuth (client-side; safe to expose)
-# Get your Client ID from: https://github.com/settings/developers
-# 1. Click "New OAuth App"
-# 2. Fill in the form (Homepage: http://localhost:9000, Callback: http://localhost:9000/api/github-oauth-callback)
-# 3. Copy the Client ID
 VITE_GITHUB_CLIENT_ID=${config.github.clientId}
 
 # Target repo for Issues/Comments
@@ -385,14 +407,11 @@ VITE_GITHUB_REPO=${config.github.repo || config.repo}
   } else {
     envContent += `# GitHub OAuth (client-side; safe to expose)
 # Get your Client ID from: https://github.com/settings/developers
-# 1. Click "New OAuth App"
-# 2. Fill in the form (Homepage: http://localhost:9000, Callback: http://localhost:9000/api/github-oauth-callback)
-# 3. Copy the Client ID
 VITE_GITHUB_CLIENT_ID=
 
 # Target repo for Issues/Comments
-VITE_GITHUB_OWNER=${config.owner}
-VITE_GITHUB_REPO=${config.repo}
+VITE_GITHUB_OWNER=${config.owner || ''}
+VITE_GITHUB_REPO=${config.repo || ''}
 
 `;
   }
@@ -457,7 +476,19 @@ VITE_JIRA_BASE_URL=
 
 `;
 
-  if (config.github && config.github.clientSecret) {
+  // Provider secrets (GitHub or GitLab)
+  if (config.provider && config.provider.type === 'gitlab' && config.provider.clientSecret) {
+    envServerContent += `# GitLab OAuth Application Secret (server-only)
+GITLAB_CLIENT_SECRET=${config.provider.clientSecret}
+
+`;
+  } else if (config.provider && config.provider.type === 'github' && config.provider.clientSecret) {
+    envServerContent += `# GitHub OAuth Client Secret (server-only)
+GITHUB_CLIENT_SECRET=${config.provider.clientSecret}
+
+`;
+  } else if (config.github && config.github.clientSecret) {
+    // Backward compatibility: old GitHub-only config
     envServerContent += `# GitHub OAuth Client Secret (server-only)
 # Get this from your GitHub OAuth App settings: https://github.com/settings/developers
 # Click on your OAuth App, then "Generate a new client secret"
@@ -1164,14 +1195,14 @@ async function main() {
   console.log('🚀 Welcome to Hale Commenting System!\n');
   console.log('This commenting system allows you to:');
   console.log('  • Add comments directly on your design pages');
-  console.log('  • Sync comments with GitHub Issues');
+  console.log('  • Sync comments with GitLab Issues (or GitHub)');
   console.log('  • Link Jira tickets to pages');
   console.log('  • Store design goals and context\n');
-  
-  console.log('Why GitHub?');
-  console.log('  We use GitHub Issues to store and sync all comments. When you add a comment');
-  console.log('  on a page, it creates a GitHub Issue. This allows comments to persist, sync');
-  console.log('  across devices, and be managed like any other GitHub Issue.\n');
+
+  console.log('Why GitLab?');
+  console.log('  We use GitLab Issues to store and sync all comments. When you add a comment');
+  console.log('  on a page, it creates a GitLab Issue. This allows comments to persist, sync');
+  console.log('  across devices, and be managed like any other GitLab Issue.\n');
   
   console.log('Why Jira?');
   console.log('  You can link Jira tickets to specific pages or sections. This helps connect');
@@ -1355,24 +1386,35 @@ async function main() {
     }
   }
 
-  // Step 2: GitHub OAuth Setup (Optional)
-  console.log('\n📦 Step 2: GitHub Integration (Optional)\n');
-  console.log('GitHub integration allows comments to sync with GitHub Issues.');
-  console.log('You can set this up now or add it later.\n');
-  
-  const setupGitHub = await prompt([
+  // Step 2: Issue Tracking Integration
+  console.log('\n📦 Step 2: Issue Tracking Integration\n');
+  console.log('Comments can sync with GitHub or GitLab Issues.');
+  console.log('This allows comments to persist and be managed like regular issues.\n');
+  console.log('Options:');
+  console.log('  • GitHub - Sync with GitHub Issues');
+  console.log('  • GitLab - Sync with GitLab Issues (supports self-hosted)');
+  console.log('  • Skip - Set up later (you can still use local comments)\n');
+
+  const platformChoice = await prompt([
     {
-      type: 'confirm',
-      name: 'setup',
-      message: 'Do you want to set up GitHub integration now?',
-      default: true
+      type: 'list',
+      name: 'platform',
+      message: 'Select your issue tracking platform:',
+      choices: [
+        { name: 'GitHub', value: 'github' },
+        { name: 'GitLab', value: 'gitlab' },
+        { name: 'Skip (set up later)', value: 'skip' }
+      ],
+      default: 'github'
     }
   ]);
 
-  let githubConfig = null;
-  let githubValid = false;
+  const selectedPlatform = platformChoice.platform; // 'github', 'gitlab', or 'skip'
 
-  if (setupGitHub.setup) {
+  let providerConfig = null;
+  let providerValid = false;
+
+  if (selectedPlatform === 'github') {
     console.log('\nTo sync comments with GitHub Issues, we need to authenticate with GitHub.');
     console.log('This requires creating a GitHub OAuth App.\n');
     console.log('Instructions:');
@@ -1610,14 +1652,120 @@ async function main() {
     }
     console.log('✅ GitHub credentials validated!\n');
 
-    githubConfig = {
+    providerConfig = {
+      type: 'github',
       clientId: githubAnswers.clientId,
       clientSecret: githubAnswers.clientSecret,
       owner: targetOwner,
       repo: targetRepo
     };
-  } else {
-    console.log('\n⏭️  Skipping GitHub setup. You can add it later by editing .env and .env.server files.\n');
+    providerValid = githubValid;
+  } else if (selectedPlatform === 'gitlab') {
+    // GitLab setup flow
+    console.log('\nTo sync comments with GitLab Issues, we need to authenticate with GitLab.');
+    console.log('This requires creating a GitLab OAuth Application.\n');
+
+    // Prompt for GitLab instance URL
+    console.log('💡 This supports both gitlab.com and self-hosted GitLab instances.');
+    console.log('   Examples:');
+    console.log('   • https://gitlab.cee.redhat.com (Red Hat internal)');
+    console.log('   • https://gitlab.com (public GitLab)\n');
+
+    const gitlabInstanceAnswer = await prompt([
+      {
+        type: 'input',
+        name: 'baseUrl',
+        message: 'GitLab instance URL:',
+        default: 'https://gitlab.cee.redhat.com',
+        validate: (input) => {
+          if (!input.trim()) return 'Base URL is required';
+          try {
+            new URL(input);
+            return true;
+          } catch {
+            return 'Invalid URL format (must start with https://)';
+          }
+        }
+      }
+    ]);
+
+    const baseUrl = gitlabInstanceAnswer.baseUrl.replace(/\/+$/, '');
+    const isSelfHosted = !baseUrl.includes('gitlab.com');
+
+    console.log('\nInstructions:');
+    console.log(`1. Visit: ${baseUrl}/-/user_settings/applications`);
+    console.log('2. Click "Add new application"');
+    console.log('3. Fill in the form:');
+    console.log('   - Name: Your app name (e.g., "My Design Comments")');
+    console.log('   - Redirect URI: http://localhost:9000/api/gitlab-oauth-callback');
+    console.log('   - Confidential: ✓ (checked)');
+    console.log('   - Scopes: ✓ api (full API access)');
+    console.log('4. Click "Save application"');
+    console.log('5. Copy the Application ID and Secret\n');
+
+    const gitlabAnswers = await prompt([
+      {
+        type: 'input',
+        name: 'clientId',
+        message: 'GitLab Application ID:',
+        validate: (input) => {
+          if (!input.trim()) return 'Application ID is required';
+          return true;
+        }
+      },
+      {
+        type: 'password',
+        name: 'clientSecret',
+        message: 'GitLab Application Secret:',
+        mask: '*',
+        validate: (input) => {
+          if (!input.trim()) return 'Application Secret is required';
+          return true;
+        }
+      }
+    ]);
+
+    // Prompt for project path
+    console.log('\nWhere do you want to store comments as GitLab Issues?');
+    console.log('This should be a project you have maintainer/owner access to.');
+    console.log('Format: group/project or namespace/group/project');
+    console.log('');
+    console.log('Example: If your project URL is:');
+    console.log(`  ${baseUrl}/uxd/prototypes/rhoai`);
+    console.log('Then enter: uxd/prototypes/rhoai\n');
+
+    const projectPathAnswer = await prompt([
+      {
+        type: 'input',
+        name: 'projectPath',
+        message: 'GitLab project path (just the path, not the full URL):',
+        validate: (input) => {
+          if (!input.trim()) return 'Project path is required';
+          if (input.includes('http://') || input.includes('https://')) {
+            return 'Do not include the URL - just the project path (e.g., uxd/prototypes/rhoai)';
+          }
+          if (!input.includes('/')) return 'Project path must include at least one slash (e.g., group/project)';
+          if (input.includes('/-/')) return 'Do not include "/-/tree/" or other GitLab UI paths - just the project path';
+          return true;
+        }
+      }
+    ]);
+
+    // Note: GitLab credential validation would require more complex setup
+    console.log('\n⚠️  Note: GitLab credentials will not be validated automatically.');
+    console.log('Please ensure you have maintainer/owner access to the project and the OAuth app is configured correctly.\n');
+
+    providerConfig = {
+      type: 'gitlab',
+      clientId: gitlabAnswers.clientId,
+      clientSecret: gitlabAnswers.clientSecret,
+      baseUrl: baseUrl,
+      projectPath: projectPathAnswer.projectPath
+    };
+    providerValid = true; // Assume valid since we can't validate GitLab easily
+  } else if (selectedPlatform === 'skip') {
+    console.log('\n⏭️  Skipping issue tracking setup. Comments will work locally only.');
+    console.log('You can add GitHub or GitLab integration later by editing .env and .env.server files.\n');
   }
 
   // Step 3: Jira Setup (Optional)
@@ -1702,10 +1850,11 @@ async function main() {
   // Step 4: Generate files
   console.log('📝 Step 4: Generating configuration files...\n');
   generateFiles({
-    github: githubConfig,
+    provider: providerConfig,
+    github: providerConfig && providerConfig.type === 'github' ? providerConfig : null, // For backward compat
     jira: jiraConfig,
-    owner: githubConfig ? githubConfig.owner : owner,
-    repo: githubConfig ? githubConfig.repo : repo
+    owner: providerConfig && providerConfig.type === 'github' ? providerConfig.owner : owner,
+    repo: providerConfig && providerConfig.type === 'github' ? providerConfig.repo : repo
   });
 
   // Step 5: Integrate into project
@@ -1785,10 +1934,10 @@ async function main() {
     console.log('   4. Restart your dev server\n');
   }
 
-  if (!githubConfig || !jiraConfig) {
+  if (!providerConfig || !jiraConfig) {
     console.log('📝 To add integrations later:');
-    if (!githubConfig) {
-      console.log('   • GitHub: Edit .env and .env.server files (see comments in files for instructions)');
+    if (!providerConfig) {
+      console.log('   • GitHub/GitLab: Edit .env and .env.server files (see comments in files for instructions)');
     }
     if (!jiraConfig) {
       console.log('   • Jira: Edit .env and .env.server files (see comments in files for instructions)');

@@ -154,6 +154,118 @@ module.exports = merge(common('development'), {
         }
       });
 
+      // GitLab OAuth callback
+      devServer.app.get('/api/gitlab-oauth-callback', async (req, res) => {
+        try {
+          const code = req.query.code;
+          if (!code) {
+            return res.status(400).send('Missing ?code from GitLab OAuth callback.');
+          }
+
+          const clientId = process.env.VITE_GITLAB_CLIENT_ID;
+          const clientSecret = process.env.GITLAB_CLIENT_SECRET;
+          const baseUrl = (process.env.VITE_GITLAB_BASE_URL || 'https://gitlab.com').replace(/\/+$/, '');
+
+          if (!clientId) {
+            return res.status(500).send('Missing VITE_GITLAB_CLIENT_ID (client id).');
+          }
+          if (!clientSecret) {
+            return res.status(500).send(
+              'Missing GITLAB_CLIENT_SECRET. For local dev, put it in .env.server (gitignored).'
+            );
+          }
+
+          const redirectUri = `${req.protocol}://${req.get('host')}/api/gitlab-oauth-callback`;
+
+          // Exchange code -> access token
+          const tokenResp = await fetch(`${baseUrl}/oauth/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              client_id: clientId,
+              client_secret: clientSecret,
+              code,
+              grant_type: 'authorization_code',
+              redirect_uri: redirectUri,
+            }),
+          });
+
+          const tokenData = await tokenResp.json();
+          if (!tokenResp.ok || tokenData.error) {
+            return res
+              .status(500)
+              .send(`OAuth token exchange failed: ${tokenData.error || tokenResp.statusText}`);
+          }
+
+          const accessToken = tokenData.access_token;
+          if (!accessToken) {
+            return res.status(500).send('OAuth token exchange did not return an access_token.');
+          }
+
+          // Fetch user
+          const userResp = await fetch(`${baseUrl}/api/v4/user`, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'User-Agent': 'pfseed-commenting-system',
+            },
+          });
+          const user = await userResp.json();
+          if (!userResp.ok) {
+            return res.status(500).send(`Failed to fetch GitLab user: ${user.message || userResp.statusText}`);
+          }
+
+          const login = encodeURIComponent(user.username || '');
+          const avatar = encodeURIComponent(user.avatar_url || '');
+          const token = encodeURIComponent(accessToken);
+
+          // Redirect back into the SPA; ProviderAuthContext will read these and store them.
+          return res.redirect(`/#/auth-callback?token=${token}&login=${login}&avatar=${avatar}`);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(err);
+          return res.status(500).send('Unhandled OAuth callback error. See dev server logs.');
+        }
+      });
+
+      // GitLab API proxy
+      devServer.app.post('/api/gitlab-api', async (req, res) => {
+        try {
+          const { token, method, endpoint, data } = req.body || {};
+          if (!token) return res.status(401).json({ message: 'Missing token' });
+          if (!method || !endpoint) return res.status(400).json({ message: 'Missing method or endpoint' });
+
+          const baseUrl = (process.env.VITE_GITLAB_BASE_URL || 'https://gitlab.com').replace(/\/+$/, '');
+          const url = `${baseUrl}/api/v4${endpoint}`;
+
+          const resp = await fetch(url, {
+            method,
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'User-Agent': 'pfseed-commenting-system',
+              ...(data ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: data ? JSON.stringify(data) : undefined,
+          });
+
+          const text = await resp.text();
+          const maybeJson = (() => {
+            try {
+              return JSON.parse(text);
+            } catch {
+              return text;
+            }
+          })();
+
+          return res.status(resp.status).json(maybeJson);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(err);
+          return res.status(500).json({ message: 'Unhandled gitlab-api proxy error. See dev server logs.' });
+        }
+      });
+
       devServer.app.get('/api/jira-issue', async (req, res) => {
         try {
           const key = String(req.query.key || '').trim();
