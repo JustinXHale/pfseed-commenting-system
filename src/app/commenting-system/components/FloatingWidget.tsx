@@ -228,16 +228,15 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
         </div>
 
         {/* Controls row */}
-        {
-          <div
-            style={{
-              padding: '0 1rem 0.75rem 1rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '1rem',
-              borderBottom: '1px solid var(--pf-t--global--border--color--default)',
-            }}
-          >
+        <div
+          style={{
+            padding: '0 1rem 0.75rem 1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            borderBottom: '1px solid var(--pf-t--global--border--color--default)',
+          }}
+        >
             <Switch
               id="floating-comments-enabled-switch"
               label="Enable Comments"
