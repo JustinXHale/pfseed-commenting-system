@@ -170,6 +170,36 @@ function findFile(filename, startDir = process.cwd()) {
 // Detection Functions
 // ============================================================================
 
+function getDevServerPort() {
+  // Check environment variable first
+  if (process.env.PORT) {
+    return process.env.PORT;
+  }
+  
+  // Try to read from webpack.dev.js
+  try {
+    const webpackDevPath = path.join(process.cwd(), 'webpack.dev.js');
+    if (fs.existsSync(webpackDevPath)) {
+      const content = fs.readFileSync(webpackDevPath, 'utf8');
+      // Check for PORT env var pattern: process.env.PORT || '9000'
+      const envPortMatch = content.match(/process\.env\.PORT\s*\|\|\s*['"]?(\d+)['"]?/);
+      if (envPortMatch) {
+        return envPortMatch[1];
+      }
+      // Check for direct port assignment: port: PORT or port: '9000'
+      const portMatch = content.match(/port:\s*(?:PORT|['"]?(\d+)['"]?)/);
+      if (portMatch && portMatch[1]) {
+        return portMatch[1];
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  
+  // Default fallback
+  return '9000';
+}
+
 function detectPatternFlySeed() {
   const cwd = process.cwd();
   
@@ -188,7 +218,11 @@ function detectPatternFlySeed() {
     const packageJsonPath = path.join(cwd, 'package.json');
     if (fs.existsSync(packageJsonPath)) {
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-      const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+      const deps = { 
+        ...packageJson.dependencies, 
+        ...packageJson.devDependencies,
+        ...packageJson.peerDependencies 
+      };
       hasPatternFly = !!(
         deps['@patternfly/react-core'] ||
         deps['@patternfly/react-icons']
@@ -432,25 +466,78 @@ VITE_JIRA_BASE_URL=
   if (fs.existsSync(envPath)) {
     let existing = fs.readFileSync(envPath, 'utf-8');
 
-    if (existing.includes('VITE_GITHUB_CLIENT_ID')) {
-      // Update existing values
+    // Check if commenting system config exists (either GitHub or GitLab)
+    const hasCommentingSystemConfig = existing.includes('Hale Commenting System') ||
+                                      existing.includes('VITE_GITHUB_CLIENT_ID') ||
+                                      existing.includes('VITE_GITLAB_CLIENT_ID') ||
+                                      existing.includes('VITE_PROVIDER_TYPE');
+
+    if (hasCommentingSystemConfig) {
+      // Remove ALL commenting system related lines and replace with new config
       const lines = existing.split('\n');
-      const updatedLines = lines.map(line => {
-        if (line.startsWith('VITE_GITHUB_CLIENT_ID=')) {
-          return `VITE_GITHUB_CLIENT_ID=${config.github?.clientId || ''}`;
+      let newLines = [];
+      let skipUntilEmptyLine = false;
+      let foundSection = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Detect start of commenting system section
+        if (line.includes('Hale Commenting System')) {
+          skipUntilEmptyLine = true;
+          foundSection = true;
+          // Add the new content at this position
+          newLines.push(...envContent.split('\n'));
+          continue;
         }
-        if (line.startsWith('VITE_GITHUB_OWNER=')) {
-          return `VITE_GITHUB_OWNER=${config.owner || ''}`;
+        
+        // Skip lines that are part of the commenting system config
+        if (skipUntilEmptyLine) {
+          // Check if this is still part of the commenting system section
+          if (line.startsWith('VITE_GITHUB_') || 
+              line.startsWith('VITE_GITLAB_') || 
+              line.startsWith('VITE_PROVIDER_TYPE') ||
+              line.startsWith('VITE_JIRA_BASE_URL') ||
+              (line.startsWith('#') && (line.includes('GitHub') || line.includes('GitLab') || line.includes('Jira') || line.includes('Provider') || line.includes('OAuth') || line.includes('Target')))) {
+            // Still in commenting section, skip this line
+            continue;
+          }
+          
+          // Empty line after commenting section - skip it and exit section
+          if (line.trim() === '') {
+            skipUntilEmptyLine = false;
+            // Don't add this empty line, we'll add one after our new content
+            continue;
+          }
+          
+          // Non-empty, non-commenting line - exit section and keep the line
+          skipUntilEmptyLine = false;
+        } else {
+          // Also check for standalone commenting system variables (in case header is missing)
+          if (line.startsWith('VITE_GITHUB_') || 
+              line.startsWith('VITE_GITLAB_') || 
+              line.startsWith('VITE_PROVIDER_TYPE') ||
+              (line.startsWith('VITE_JIRA_BASE_URL') && existing.includes('Hale Commenting System'))) {
+            // Skip standalone commenting system variables
+            continue;
+          }
         }
-        if (line.startsWith('VITE_GITHUB_REPO=')) {
-          return `VITE_GITHUB_REPO=${config.repo || ''}`;
+        
+        // Keep lines that are not part of commenting system section
+        newLines.push(line);
+      }
+      
+      // If we didn't find the section marker but detected config, append to end
+      if (!foundSection) {
+        // Remove any trailing empty lines
+        while (newLines.length > 0 && newLines[newLines.length - 1].trim() === '') {
+          newLines.pop();
         }
-        if (line.startsWith('VITE_JIRA_BASE_URL=')) {
-          return `VITE_JIRA_BASE_URL=${config.jira?.baseUrl || ''}`;
-        }
-        return line;
-      });
-      fs.writeFileSync(envPath, updatedLines.join('\n'));
+        newLines.push('');
+        newLines.push(...envContent.split('\n'));
+      }
+      
+      fs.writeFileSync(envPath, newLines.join('\n'));
       console.log('   ✅ Updated .env file');
     } else {
       // Append if commenting system config not present
@@ -927,6 +1014,82 @@ devServer.app.use(express.json());
   }
 }
 
+function fixWebpackCssLoader() {
+  const cwd = process.cwd();
+  const webpackDevPath = path.join(cwd, 'webpack.dev.js');
+  const webpackCommonPath = path.join(cwd, 'webpack.common.js');
+
+  // Try to fix CSS loader in webpack.dev.js or webpack.common.js
+  const filesToCheck = [webpackDevPath, webpackCommonPath].filter(f => fs.existsSync(f));
+
+  for (const filePath of filesToCheck) {
+    let content = fs.readFileSync(filePath, 'utf8');
+
+    // Check if CSS loader already has exclude for nested node_modules
+    if (content.includes('exclude') && content.includes('node_modules') && content.includes('node_modules')) {
+      // Already has exclude pattern, skip
+      continue;
+    }
+
+    // Look for CSS loader rule patterns
+    const cssLoaderPatterns = [
+      // Pattern 1: test: /\.css$/
+      /(test:\s*\/\\\.css\\\$\/[,\s]*)/,
+      // Pattern 2: test: /\.css$/i
+      /(test:\s*\/\\\.css\\\$\/i[,\s]*)/,
+      // Pattern 3: test: /\.css$/, with include
+      /(test:\s*\/\\\.css\\\$\/[,\s]*\n\s*include:)/,
+    ];
+
+    let modified = false;
+    for (const pattern of cssLoaderPatterns) {
+      const match = content.match(pattern);
+      if (match) {
+        // Add exclude after the test pattern
+        const excludePattern = match[1] + '\n        exclude: /node_modules\\/.*\\/node_modules\\//,';
+        content = content.replace(pattern, excludePattern);
+        modified = true;
+        break;
+      }
+    }
+
+    // Also try to find CSS rules in module.rules array
+    if (!modified) {
+      // Look for CSS rules that use stylePaths or include patterns
+      // Pattern: test: /\.css$/, followed by include: [...stylePaths]
+      // Match: test: /\.css$/, (with optional comma and whitespace)
+      //        newline and indentation
+      //        include: [...stylePaths]
+      const cssRuleWithIncludePattern = /(test:\s*\/\\?\.css\$\/,?\s*\n\s*)(include:\s*\[.*?stylePaths)/s;
+      const match = content.match(cssRuleWithIncludePattern);
+      if (match) {
+        // Add exclude between test and include
+        const excludeLine = '        exclude: /node_modules\\/.*\\/node_modules\\//,\n';
+        content = content.replace(cssRuleWithIncludePattern, match[1] + excludeLine + match[2]);
+        modified = true;
+      } else {
+        // Try a more flexible pattern - look for any CSS rule with include
+        // Match test: /\.css$/ (with or without backslash escape) followed by include:
+        const flexiblePattern = /(test:\s*\/\\?\.css\$\/,?\s*\n\s*)(include:)/;
+        const flexibleMatch = content.match(flexiblePattern);
+        if (flexibleMatch) {
+          const excludeLine = '        exclude: /node_modules\\/.*\\/node_modules\\//,\n';
+          content = content.replace(flexiblePattern, flexibleMatch[1] + excludeLine + flexibleMatch[2]);
+          modified = true;
+        }
+      }
+    }
+
+    if (modified) {
+      fs.writeFileSync(filePath, content, 'utf8');
+      console.log(`   ✅ Updated CSS loader in ${path.basename(filePath)} to exclude nested node_modules`);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function getPackageVersion() {
   try {
     // Get the script's directory and find package.json relative to it
@@ -954,8 +1117,8 @@ function getPackageVersion() {
 function modifyIndexTsx(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   
-  // Check if already integrated
-  if (content.includes('CommentProvider') && content.includes('GitHubAuthProvider')) {
+  // Check if already integrated (look for ProviderAuthProvider or GitHubAuthProvider for backward compat)
+  if (content.includes('CommentProvider') && (content.includes('ProviderAuthProvider') || content.includes('GitHubAuthProvider'))) {
     console.log('   ⚠️  Already integrated (providers found)');
     return false;
   }
@@ -967,8 +1130,9 @@ function modifyIndexTsx(filePath) {
     });
 
     let hasCommentProvider = false;
-    let hasGitHubAuthProvider = false;
+    let hasProviderAuthProvider = false;
     let hasCommentImport = false;
+    let importSource = 'hale-commenting-system'; // Default import path
     let routerElement = null;
 
     // Check existing imports and find Router element
@@ -977,13 +1141,21 @@ function modifyIndexTsx(filePath) {
         const source = path.node.source.value;
         if (source.includes('commenting-system') || source.includes('@app/commenting-system') || source.includes('hale-commenting-system')) {
           hasCommentImport = true;
+          // Detect the import path being used
+          // Always prefer 'hale-commenting-system' over '@app/commenting-system'
+          if (source.includes('hale-commenting-system')) {
+            importSource = 'hale-commenting-system';
+          } else if (source.includes('@app/commenting-system')) {
+            // If old @app/ path is found, we'll update it to hale-commenting-system
+            importSource = 'hale-commenting-system';
+          }
           // Check if providers are imported
           path.node.specifiers.forEach(spec => {
             if (spec.imported && spec.imported.name === 'CommentProvider') {
               hasCommentProvider = true;
             }
-            if (spec.imported && spec.imported.name === 'GitHubAuthProvider') {
-              hasGitHubAuthProvider = true;
+            if (spec.imported && (spec.imported.name === 'ProviderAuthProvider' || spec.imported.name === 'GitHubAuthProvider')) {
+              hasProviderAuthProvider = true;
             }
           });
         }
@@ -994,6 +1166,11 @@ function modifyIndexTsx(filePath) {
         }
       }
     });
+
+    // Always use 'hale-commenting-system' as the package name
+    // Don't use @app/ alias even if it exists in the file - the package
+    // should be imported by its npm package name, not a path alias
+    importSource = 'hale-commenting-system';
 
     // Add imports if missing
     if (!hasCommentImport) {
@@ -1010,24 +1187,28 @@ function modifyIndexTsx(filePath) {
       const providerImports = types.importDeclaration(
         [
           types.importSpecifier(types.identifier('CommentProvider'), types.identifier('CommentProvider')),
-          types.importSpecifier(types.identifier('GitHubAuthProvider'), types.identifier('GitHubAuthProvider'))
+          types.importSpecifier(types.identifier('ProviderAuthProvider'), types.identifier('ProviderAuthProvider'))
         ],
-        types.stringLiteral('hale-commenting-system')
+        types.stringLiteral(importSource)
       );
       
       ast.program.body.splice(importIndex, 0, providerImports);
-    } else if (!hasCommentProvider || !hasGitHubAuthProvider) {
-      // Update existing import
+    } else if (!hasCommentProvider || !hasProviderAuthProvider) {
+      // Update existing import - also fix @app/commenting-system to hale-commenting-system
       traverse(ast, {
         ImportDeclaration(path) {
           const source = path.node.source.value;
           if (source.includes('commenting-system') || source.includes('@app/commenting-system') || source.includes('hale-commenting-system')) {
+            // Update import source to use hale-commenting-system if it's using @app/ path
+            if (source.includes('@app/commenting-system')) {
+              path.node.source.value = 'hale-commenting-system';
+            }
             const specifiers = path.node.specifiers || [];
             if (!hasCommentProvider) {
               specifiers.push(types.importSpecifier(types.identifier('CommentProvider'), types.identifier('CommentProvider')));
             }
-            if (!hasGitHubAuthProvider) {
-              specifiers.push(types.importSpecifier(types.identifier('GitHubAuthProvider'), types.identifier('GitHubAuthProvider')));
+            if (!hasProviderAuthProvider) {
+              specifiers.push(types.importSpecifier(types.identifier('ProviderAuthProvider'), types.identifier('ProviderAuthProvider')));
             }
             path.node.specifiers = specifiers;
           }
@@ -1039,28 +1220,30 @@ function modifyIndexTsx(filePath) {
     if (routerElement) {
       const routerChildren = routerElement.node.children;
       
-      // Check if already wrapped
+      // Check if already wrapped (check for ProviderAuthProvider or GitHubAuthProvider)
       if (routerChildren.length > 0 && 
-          routerChildren[0].type === 'JSXElement' && 
-          routerChildren[0].openingElement.name.name === 'GitHubAuthProvider') {
+          routerChildren[0].type === 'JSXElement') {
+        const firstChildName = routerChildren[0].openingElement.name.name;
+        if (firstChildName === 'ProviderAuthProvider' || firstChildName === 'GitHubAuthProvider') {
         console.log('   ⚠️  Already integrated (providers found in JSX)');
         return false;
+        }
       }
 
-      // Create provider wrappers
+      // Create provider wrappers in correct order: ProviderAuthProvider -> CommentProvider -> content
       const commentProvider = types.jsxElement(
         types.jsxOpeningElement(types.jsxIdentifier('CommentProvider'), []),
         types.jsxClosingElement(types.jsxIdentifier('CommentProvider')),
         routerChildren
       );
 
-      const gitHubAuthProvider = types.jsxElement(
-        types.jsxOpeningElement(types.jsxIdentifier('GitHubAuthProvider'), []),
-        types.jsxClosingElement(types.jsxIdentifier('GitHubAuthProvider')),
+      const providerAuthProvider = types.jsxElement(
+        types.jsxOpeningElement(types.jsxIdentifier('ProviderAuthProvider'), []),
+        types.jsxClosingElement(types.jsxIdentifier('ProviderAuthProvider')),
         [commentProvider]
       );
 
-      routerElement.node.children = [gitHubAuthProvider];
+      routerElement.node.children = [providerAuthProvider];
     }
 
     const output = generate(ast, {
@@ -1198,7 +1381,7 @@ async function main() {
   console.log('  • Sync comments with GitLab Issues (or GitHub)');
   console.log('  • Link Jira tickets to pages');
   console.log('  • Store design goals and context\n');
-
+  
   console.log('Why GitLab?');
   console.log('  We use GitLab Issues to store and sync all comments. When you add a comment');
   console.log('  on a page, it creates a GitLab Issue. This allows comments to persist, sync');
@@ -1247,6 +1430,21 @@ async function main() {
     process.exit(1);
   }
 
+  // Check if the package is installed
+  const cwd = process.cwd();
+  const packageJsonPath = path.join(cwd, 'package.json');
+  const nodeModulesPath = path.join(cwd, 'node_modules', 'hale-commenting-system');
+  
+  if (!fs.existsSync(nodeModulesPath)) {
+    console.error('\n❌ Error: hale-commenting-system is not installed.');
+    console.error('Please install it first:');
+    console.error('   npm install hale-commenting-system');
+    console.error('Then run this command again:');
+    console.error('   npx hale-commenting-system init\n');
+    rl.close();
+    process.exit(1);
+  }
+
   // Detect project setup type
   const gitInfo = detectGitRemote();
   const setupType = detectProjectSetup();
@@ -1263,7 +1461,7 @@ async function main() {
         name: 'setupType',
         message: 'How did you set up your PatternFly Seed project?',
         choices: [
-          { name: 'I forked the PatternFly Seed repo on GitHub', value: 'forked' },
+          { name: 'I forked the PatternFly Seed repo', value: 'forked' },
           { name: 'I cloned the PatternFly Seed repo locally', value: 'cloned' },
           { name: 'I\'m not sure', value: 'unknown' }
         ]
@@ -1306,53 +1504,12 @@ async function main() {
       console.log(`\n✅ Detected repository: ${owner}/${repo}\n`);
     }
   } else if (projectSetup === 'cloned') {
-    console.log('\n📝 Since you cloned the repo, you can create your own GitHub repository to store comments.\n');
-    console.log('Note: This is optional! You can test the system locally first and add GitHub integration later.\n');
-    console.log('Steps to create a GitHub repository (optional):');
-    console.log('1. Create a new repository on GitHub');
-    console.log('2. Add it as a remote: git remote add origin <your-repo-url>');
-    console.log('3. Push your code: git push -u origin main\n');
-
-    const hasCreated = await prompt([
-      {
-        type: 'confirm',
-        name: 'created',
-        message: 'Have you created and pushed to your GitHub repository?',
-        default: false
-      }
-    ]);
-
-    if (!hasCreated.created) {
-      console.log('\n⏭️  No problem! You can set up the GitHub repository later.');
-      console.log('   The system will still work locally for testing.\n');
+    console.log('\n📝 Since you cloned the repo, you can create your own repository to store comments.\n');
+    console.log('Note: This is optional! You can test the system locally first and add integration later.\n');
+    // Don't ask about repository here - wait until issue tracking selection
       // Set placeholder values that can be updated later
-      owner = 'YOUR_GITHUB_USERNAME';
+    owner = 'YOUR_USERNAME';
       repo = 'YOUR_REPO_NAME';
-    } else {
-      // Ask for owner/repo
-      const repoAnswers = await prompt([
-        {
-          type: 'input',
-          name: 'owner',
-          message: 'What is your GitHub username or organization name?',
-          validate: (input) => {
-            if (!input.trim()) return 'Owner is required';
-            return true;
-          }
-        },
-        {
-          type: 'input',
-          name: 'repo',
-          message: 'What is the name of your GitHub repository?',
-          validate: (input) => {
-            if (!input.trim()) return 'Repository name is required';
-            return true;
-          }
-        }
-      ]);
-      owner = repoAnswers.owner;
-      repo = repoAnswers.repo;
-    }
   } else if (projectSetup === 'unknown') {
     // Try to detect from git
     if (gitInfo && gitInfo.owner && gitInfo.repo) {
@@ -1394,7 +1551,7 @@ async function main() {
   console.log('  • GitHub - Sync with GitHub Issues');
   console.log('  • GitLab - Sync with GitLab Issues (supports self-hosted)');
   console.log('  • Skip - Set up later (you can still use local comments)\n');
-
+  
   const platformChoice = await prompt([
     {
       type: 'list',
@@ -1422,8 +1579,9 @@ async function main() {
     console.log('2. Click "New OAuth App"');
     console.log('3. Fill in the form:');
     console.log('   - Application name: Your app name (e.g., "My Design Comments")');
-    console.log('   - Homepage URL: http://localhost:9000 (or your dev server URL)');
-    console.log('   - Authorization callback URL: http://localhost:9000/api/github-oauth-callback');
+    const devPort = getDevServerPort();
+    console.log(`   - Homepage URL: http://localhost:${devPort} (or your dev server URL)`);
+    console.log(`   - Authorization callback URL: http://localhost:${devPort}/api/github-oauth-callback`);
     console.log('4. Click "Register application"');
     console.log('5. Copy the Client ID and generate a Client Secret\n');
     
@@ -1697,7 +1855,8 @@ async function main() {
     console.log('2. Click "Add new application"');
     console.log('3. Fill in the form:');
     console.log('   - Name: Your app name (e.g., "My Design Comments")');
-    console.log('   - Redirect URI: http://localhost:9000/api/gitlab-oauth-callback');
+    const devPort = getDevServerPort();
+    console.log(`   - Redirect URI: http://localhost:${devPort}/api/gitlab-oauth-callback`);
     console.log('   - Confidential: ✓ (checked)');
     console.log('   - Scopes: ✓ api (full API access)');
     console.log('4. Click "Save application"');
@@ -1728,25 +1887,46 @@ async function main() {
     // Prompt for project path
     console.log('\nWhere do you want to store comments as GitLab Issues?');
     console.log('This should be a project you have maintainer/owner access to.');
-    console.log('Format: group/project or namespace/group/project');
     console.log('');
-    console.log('Example: If your project URL is:');
-    console.log(`  ${baseUrl}/uxd/prototypes/rhoai`);
-    console.log('Then enter: uxd/prototypes/rhoai\n');
+    console.log('You can paste the full URL or just the path:');
+    console.log(`  • Full URL: ${baseUrl}/uxd/prototypes/rhoai`);
+    console.log('  • Path only: uxd/prototypes/rhoai\n');
 
     const projectPathAnswer = await prompt([
       {
         type: 'input',
         name: 'projectPath',
-        message: 'GitLab project path (just the path, not the full URL):',
+        message: 'GitLab project path or full URL:',
         validate: (input) => {
           if (!input.trim()) return 'Project path is required';
-          if (input.includes('http://') || input.includes('https://')) {
-            return 'Do not include the URL - just the project path (e.g., uxd/prototypes/rhoai)';
-          }
-          if (!input.includes('/')) return 'Project path must include at least one slash (e.g., group/project)';
-          if (input.includes('/-/')) return 'Do not include "/-/tree/" or other GitLab UI paths - just the project path';
           return true;
+        },
+        filter: (input) => {
+          // If user pasted full URL, extract the path
+          const trimmed = input.trim();
+          
+          // Check if it's a full URL
+          if (trimmed.includes('http://') || trimmed.includes('https://')) {
+            try {
+              const url = new URL(trimmed);
+              // Extract path after domain, remove leading/trailing slashes
+              let path = url.pathname.replace(/^\/+|\/+$/g, '');
+              // Remove common GitLab UI paths like /-/tree/main, /-/settings, etc.
+              path = path.replace(/\/-\/.*$/, '');
+              // Remove .git suffix if present
+              path = path.replace(/\.git$/, '');
+              return path;
+            } catch {
+              // If URL parsing fails, try manual extraction
+              const match = trimmed.match(/gitlab[^/]+\/(.+?)(?:\.git|\/-\/|$)/);
+              if (match) {
+                return match[1].replace(/\/-\/.*$/, '').replace(/\.git$/, '');
+              }
+            }
+          }
+          
+          // If it's already a path, clean it up
+          return trimmed.replace(/^\/+|\/+$/, '').replace(/\/-\/.*$/, '').replace(/\.git$/, '');
         }
       }
     ]);
@@ -1905,6 +2085,13 @@ async function main() {
   // Integrate webpack middleware
   console.log('\n📝 webpack.dev.js');
   integrateWebpackMiddleware();
+  
+  // Fix CSS loader to exclude nested node_modules
+  console.log('\n📝 Fixing CSS loader configuration...');
+  if (!fixWebpackCssLoader()) {
+    console.log('   ⚠️  Could not auto-fix CSS loader. You may need to manually exclude nested node_modules.');
+    console.log('   Add this to your CSS loader rule: exclude: /node_modules\\/.*\\/node_modules\\//');
+  }
 
   console.log('\n╔══════════════════════════════════════════════════════════╗');
   console.log('║   ✅ Integration Complete!                                 ║');

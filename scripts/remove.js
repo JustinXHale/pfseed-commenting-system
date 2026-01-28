@@ -70,12 +70,25 @@ async function main() {
     let content = fs.readFileSync(indexPath, 'utf8');
     const originalContent = content;
 
-    // Remove the import
-    content = content.replace(/import\s*{\s*CommentProvider\s*,\s*GitHubAuthProvider\s*}\s*from\s*["']hale-commenting-system["'];?\s*\n?/g, '');
+    // Remove imports - handle both old (GitHubAuthProvider) and new (ProviderAuthProvider) names
+    // Also handle both @app/commenting-system and hale-commenting-system import paths
+    const importPatterns = [
+      // Pattern 1: Both providers together (any order)
+      /import\s*{\s*[^}]*CommentProvider[^}]*,\s*(?:GitHubAuthProvider|ProviderAuthProvider)[^}]*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+      /import\s*{\s*(?:GitHubAuthProvider|ProviderAuthProvider)[^}]*,\s*[^}]*CommentProvider[^}]*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+      // Pattern 2: Single CommentProvider
+      /import\s*{\s*CommentProvider\s*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+      // Pattern 3: Single auth provider (old or new)
+      /import\s*{\s*(?:GitHubAuthProvider|ProviderAuthProvider)\s*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+    ];
 
-    // Remove the providers from JSX
-    content = content.replace(/<GitHubAuthProvider>\s*/g, '');
-    content = content.replace(/<\/GitHubAuthProvider>/g, '');
+    for (const pattern of importPatterns) {
+      content = content.replace(pattern, '');
+    }
+
+    // Remove the providers from JSX - handle both old and new provider names
+    content = content.replace(/<(?:GitHubAuthProvider|ProviderAuthProvider)>\s*/g, '');
+    content = content.replace(/<\/(?:GitHubAuthProvider|ProviderAuthProvider)>/g, '');
     content = content.replace(/<CommentProvider>\s*/g, '');
     content = content.replace(/<\/CommentProvider>/g, '');
 
@@ -92,13 +105,25 @@ async function main() {
     let content = fs.readFileSync(appLayoutPath, 'utf8');
     const originalContent = content;
 
-    // Remove the import
-    content = content.replace(/import\s*{\s*CommentPanel\s*,\s*CommentOverlay\s*}\s*from\s*["']hale-commenting-system["'];?\s*\n?/g, '');
+    // Remove the import - handle both import paths
+    const importPatterns = [
+      // Both components together
+      /import\s*{\s*CommentPanel\s*,\s*CommentOverlay\s*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+      // Single CommentPanel
+      /import\s*{\s*CommentPanel\s*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+      // Single CommentOverlay
+      /import\s*{\s*CommentOverlay\s*}\s*from\s*["'](?:@app\/commenting-system|hale-commenting-system)["'];?\s*\n?/g,
+    ];
+
+    for (const pattern of importPatterns) {
+      content = content.replace(pattern, '');
+    }
 
     // Remove the components from JSX
     content = content.replace(/<CommentPanel>\s*/g, '');
     content = content.replace(/<\/CommentPanel>/g, '');
     content = content.replace(/<CommentOverlay\s*\/>\s*/g, '');
+    content = content.replace(/<CommentOverlay\s+[^>]*\/>\s*/g, '');
 
     if (content !== originalContent) {
       fs.writeFileSync(appLayoutPath, content, 'utf8');
