@@ -1194,6 +1194,11 @@ function getPackageVersion() {
 }
 
 function modifyIndexTsx(filePath) {
+  if (!fs.existsSync(filePath)) {
+    console.error(`   ❌ File not found: ${filePath}`);
+    return false;
+  }
+
   const content = fs.readFileSync(filePath, 'utf8');
   
   // Check if already integrated (look for ProviderAuthProvider or GitHubAuthProvider for backward compat)
@@ -1297,15 +1302,17 @@ function modifyIndexTsx(filePath) {
 
     // Wrap Router content with providers
     if (routerElement) {
-      const routerChildren = routerElement.node.children;
+      const routerChildren = routerElement.node.children || [];
       
       // Check if already wrapped (check for ProviderAuthProvider or GitHubAuthProvider)
       if (routerChildren.length > 0 && 
-          routerChildren[0].type === 'JSXElement') {
+          routerChildren[0].type === 'JSXElement' &&
+          routerChildren[0].openingElement &&
+          routerChildren[0].openingElement.name) {
         const firstChildName = routerChildren[0].openingElement.name.name;
         if (firstChildName === 'ProviderAuthProvider' || firstChildName === 'GitHubAuthProvider') {
-        console.log('   ⚠️  Already integrated (providers found in JSX)');
-        return false;
+          console.log('   ⚠️  Already integrated (providers found in JSX)');
+          return false;
         }
       }
 
@@ -1323,6 +1330,10 @@ function modifyIndexTsx(filePath) {
       );
 
       routerElement.node.children = [providerAuthProvider];
+    } else {
+      console.error('   ❌ Could not find Router component in index.tsx');
+      console.error('   Make sure your index.tsx has a <Router> component.');
+      return false;
     }
 
     const output = generate(ast, {
@@ -1339,6 +1350,11 @@ function modifyIndexTsx(filePath) {
 }
 
 function modifyAppLayoutTsx(filePath) {
+  if (!fs.existsSync(filePath)) {
+    console.error(`   ❌ File not found: ${filePath}`);
+    return false;
+  }
+
   const content = fs.readFileSync(filePath, 'utf8');
 
   // Check if already integrated
@@ -1394,12 +1410,14 @@ function modifyAppLayoutTsx(filePath) {
         const openingElement = path.node.openingElement;
         if (openingElement.name && openingElement.name.name === 'Page') {
           pageComponentFound = true;
-          const children = path.node.children;
+          const children = path.node.children || [];
 
           // Check if already wrapped
           if (children.length > 0 &&
               children.some(child =>
                 child.type === 'JSXElement' &&
+                child.openingElement &&
+                child.openingElement.name &&
                 child.openingElement.name.name === 'CommentPanel')) {
             return;
           }
