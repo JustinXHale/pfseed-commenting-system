@@ -514,10 +514,11 @@ VITE_JIRA_BASE_URL=
           skipUntilEmptyLine = false;
         } else {
           // Also check for standalone commenting system variables (in case header is missing)
+          // ALWAYS skip these, regardless of whether header exists
           if (line.startsWith('VITE_GITHUB_') || 
               line.startsWith('VITE_GITLAB_') || 
               line.startsWith('VITE_PROVIDER_TYPE') ||
-              (line.startsWith('VITE_JIRA_BASE_URL') && existing.includes('Hale Commenting System'))) {
+              line.startsWith('VITE_JIRA_BASE_URL')) {
             // Skip standalone commenting system variables
             continue;
           }
@@ -533,15 +534,32 @@ VITE_JIRA_BASE_URL=
         while (newLines.length > 0 && newLines[newLines.length - 1].trim() === '') {
           newLines.pop();
         }
-        newLines.push('');
+        // Only add separator if there's existing content
+        if (newLines.length > 0) {
+          newLines.push('');
+        }
         newLines.push(...envContent.split('\n'));
       }
       
-      fs.writeFileSync(envPath, newLines.join('\n'));
-      console.log('   ✅ Updated .env file');
+      // Ensure we have content to write
+      const finalContent = newLines.join('\n');
+      if (finalContent.trim().length > 0) {
+        fs.writeFileSync(envPath, finalContent);
+        console.log('   ✅ Updated .env file');
+      } else {
+        // Fallback: if somehow we ended up with empty content, just write the new content
+        fs.writeFileSync(envPath, envContent);
+        console.log('   ✅ Updated .env file');
+      }
     } else {
       // Append if commenting system config not present
-      fs.appendFileSync(envPath, '\n' + envContent);
+      const trimmedExisting = existing.trim();
+      if (trimmedExisting.length > 0) {
+        fs.appendFileSync(envPath, '\n' + envContent);
+      } else {
+        // File is empty, just write the new content
+        fs.writeFileSync(envPath, envContent);
+      }
       console.log('   ✅ Updated .env file');
     }
   } else {
@@ -622,29 +640,90 @@ JIRA_API_TOKEN=
   if (fs.existsSync(envServerPath)) {
     let existing = fs.readFileSync(envServerPath, 'utf-8');
 
-    if (existing.includes('GITHUB_CLIENT_SECRET')) {
-      // Update existing values
+    // Check if commenting system config exists (check for header or any secret)
+    const hasCommentingSystemConfig = existing.includes('Hale Commenting System - Server Secrets') ||
+                                      existing.includes('GITHUB_CLIENT_SECRET') ||
+                                      existing.includes('GITLAB_CLIENT_SECRET') ||
+                                      existing.includes('JIRA_API_TOKEN');
+
+    if (hasCommentingSystemConfig) {
+      // Remove ALL commenting system related lines and replace with new config
       const lines = existing.split('\n');
-      const updatedLines = lines.map(line => {
-        if (line.startsWith('GITHUB_CLIENT_SECRET=')) {
-          const trimmed = String(config.github?.clientSecret || '').trim();
-          return `GITHUB_CLIENT_SECRET=${trimmed}`;
+      let newLines = [];
+      let skipUntilEmptyLine = false;
+      let foundSection = false;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Detect start of commenting system section
+        if (line.includes('Hale Commenting System - Server Secrets')) {
+          skipUntilEmptyLine = true;
+          foundSection = true;
+          // Add the new content at this position
+          newLines.push(...envServerContent.split('\n'));
+          continue;
         }
-        if (line.startsWith('JIRA_API_TOKEN=')) {
-          const trimmed = String(config.jira?.apiToken || '').trim();
-          return `JIRA_API_TOKEN=${trimmed}`;
+        
+        // Skip lines that are part of the commenting system config
+        if (skipUntilEmptyLine) {
+          // Check if this is still part of the commenting system section
+          if (line.startsWith('GITHUB_CLIENT_SECRET=') ||
+              line.startsWith('GITLAB_CLIENT_SECRET=') ||
+              line.startsWith('JIRA_API_TOKEN=') ||
+              line.startsWith('JIRA_EMAIL=') ||
+              (line.startsWith('#') && (line.includes('GitHub') || line.includes('GitLab') || line.includes('Jira') || line.includes('OAuth') || line.includes('Server Secrets')))) {
+            // Still in commenting section, skip this line
+            continue;
+          }
+          
+          // Empty line after commenting section - skip it and exit section
+          if (line.trim() === '') {
+            skipUntilEmptyLine = false;
+            continue;
+          }
+          
+          // Non-empty, non-commenting line - exit section and keep the line
+          skipUntilEmptyLine = false;
+        } else {
+          // Also check for standalone commenting system variables (in case header is missing)
+          if (line.startsWith('GITHUB_CLIENT_SECRET=') ||
+              line.startsWith('GITLAB_CLIENT_SECRET=') ||
+              line.startsWith('JIRA_API_TOKEN=') ||
+              line.startsWith('JIRA_EMAIL=')) {
+            // Skip standalone commenting system variables
+            continue;
+          }
         }
-        if (line.startsWith('JIRA_EMAIL=')) {
-          const trimmed = String(config.jira?.email || '').trim();
-          return `JIRA_EMAIL=${trimmed}`;
+        
+        // Keep lines that are not part of commenting system section
+        newLines.push(line);
+      }
+      
+      // If we didn't find the section marker but detected config, append to end
+      if (!foundSection) {
+        // Remove any trailing empty lines
+        while (newLines.length > 0 && newLines[newLines.length - 1].trim() === '') {
+          newLines.pop();
         }
-        return line;
-      });
-      fs.writeFileSync(envServerPath, updatedLines.join('\n'));
+        // Only add separator if there's existing content
+        if (newLines.length > 0) {
+          newLines.push('');
+        }
+        newLines.push(...envServerContent.split('\n'));
+      }
+      
+      fs.writeFileSync(envServerPath, newLines.join('\n'));
       console.log('   ✅ Updated .env.server file');
     } else {
       // Append if commenting system config not present
-      fs.appendFileSync(envServerPath, '\n' + envServerContent);
+      const trimmedExisting = existing.trim();
+      if (trimmedExisting.length > 0) {
+        fs.appendFileSync(envServerPath, '\n' + envServerContent);
+      } else {
+        // File is empty, just write the new content
+        fs.writeFileSync(envServerPath, envServerContent);
+      }
       console.log('   ✅ Updated .env.server file');
     }
   } else {

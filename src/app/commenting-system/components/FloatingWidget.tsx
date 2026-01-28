@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Button, Dropdown, DropdownItem, DropdownList, MenuToggle, Switch, Title } from '@patternfly/react-core';
-import { GripVerticalIcon, WindowMinimizeIcon, GithubIcon, GitlabIcon, ArrowsAltVIcon } from '@patternfly/react-icons';
+import { GripVerticalIcon, WindowMinimizeIcon, GithubIcon, GitlabIcon, ArrowsAltVIcon, CommentIcon } from '@patternfly/react-icons';
 import { useComments } from '../contexts/CommentContext';
 import { useProviderAuth } from '../contexts/ProviderAuthContext';
 
@@ -94,7 +94,7 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
       const deltaY = e.clientY - resizeStart.y;
       
       setWidgetSize({
-        width: Math.max(300, Math.min(800, resizeStart.width + deltaX)),
+        width: Math.max(450, Math.min(800, resizeStart.width + deltaX)),
         height: Math.max(200, Math.min(viewportHeight - 100, resizeStart.height + deltaY)),
       });
     };
@@ -114,20 +114,62 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
 
   // Constrain to viewport but allow moving into topbar area (just keep drag handle accessible)
   const constrainedPosition = React.useMemo(() => {
-    const widgetWidth = widgetSize.width;
-    // Calculate actual widget height
-    const widgetHeight = isMinimized ? 120 : widgetSize.height;
-    const maxX = window.innerWidth - 50; // Allow 50px of widget to be visible for dragging
-    const maxY = viewportHeight - 50;
-    // Allow widget to move into topbar, but keep at least 60px of drag handle visible
-    const minY = -widgetHeight + 60;
+    // When minimized, use fixed icon size (60px circle)
+    const widgetWidth = isMinimized ? 60 : widgetSize.width;
+    const widgetHeight = isMinimized ? 60 : widgetSize.height;
+    const maxX = window.innerWidth - (isMinimized ? 10 : 50); // Allow 10px margin when minimized, 50px when expanded
+    const maxY = viewportHeight - (isMinimized ? 10 : 50);
+    // Allow widget to move into topbar, but keep at least 60px visible when expanded, 10px when minimized
+    const minY = isMinimized ? -50 : -widgetHeight + 60;
     return {
-      x: Math.max(-widgetWidth + 50, Math.min(position.x, maxX)),
+      x: Math.max(isMinimized ? -50 : -widgetWidth + 50, Math.min(position.x, maxX)),
       y: Math.max(minY, Math.min(position.y, maxY)),
     };
   }, [position, isMinimized, viewportHeight, widgetSize]);
 
-  const widgetContent = (
+  const widgetContent = isMinimized ? (
+    // Minimized state: small circular icon button
+    <div
+      ref={widgetRef}
+      data-floating-widget
+      style={{
+        position: 'fixed',
+        left: `${constrainedPosition.x}px`,
+        top: `${constrainedPosition.y}px`,
+        width: '60px',
+        height: '60px',
+        zIndex: 99999,
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+        borderRadius: '50%',
+        backgroundColor: 'var(--pf-t--global--primary--color--100)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        transition: 'background-color 0.2s ease',
+      }}
+      onMouseDown={handleMouseDown}
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsMinimized(false);
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--pf-t--global--primary--color--200)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--pf-t--global--primary--color--100)';
+      }}
+      aria-label="Restore commenting widget"
+    >
+      <CommentIcon
+        style={{
+          color: '#ffffff',
+          fontSize: '24px',
+        }}
+      />
+    </div>
+  ) : (
+    // Expanded state: full widget
     <div
       ref={widgetRef}
       data-floating-widget
@@ -136,7 +178,7 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
         left: `${constrainedPosition.x}px`,
         top: `${constrainedPosition.y}px`,
         width: `${widgetSize.width}px`,
-        height: isMinimized ? 'fit-content' : `${widgetSize.height}px`,
+        height: `${widgetSize.height}px`,
         maxHeight: `${viewportHeight - 100}px`,
         zIndex: 99999,
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
@@ -149,9 +191,9 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
     >
       <div
         style={{
-          borderBottom: isMinimized ? 'none' : '1px solid var(--pf-t--global--border--color--default)',
+          borderBottom: '1px solid var(--pf-t--global--border--color--default)',
           backgroundColor: '#ffffff',
-          borderRadius: isMinimized ? 'var(--pf-t--global--border--radius--medium)' : 'var(--pf-t--global--border--radius--medium) var(--pf-t--global--border--radius--medium) 0 0',
+          borderRadius: 'var(--pf-t--global--border--radius--medium) var(--pf-t--global--border--radius--medium) 0 0',
         }}
       >
         {/* Title bar with drag handle */}
@@ -178,15 +220,15 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
               icon={<WindowMinimizeIcon />}
               onClick={(e) => {
                 e.stopPropagation();
-                setIsMinimized(!isMinimized);
+                setIsMinimized(true);
               }}
-              aria-label={isMinimized ? 'Maximize widget' : 'Minimize widget'}
+              aria-label="Minimize widget"
             />
           </div>
         </div>
 
         {/* Controls row */}
-        {!isMinimized && (
+        {
           <div
             style={{
               padding: '0 1rem 0.75rem 1rem',
@@ -269,40 +311,36 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
               </Button>
             )}
           </div>
-        )}
-      </div>
-      {!isMinimized && (
-        <div
-          style={{
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            flex: '1 1 0',
-            minHeight: 0,
-            backgroundColor: '#ffffff',
-            borderRadius: '0 0 var(--pf-t--global--border--radius--medium) var(--pf-t--global--border--radius--medium)',
-          }}
-        >
-          {children}
         </div>
-      )}
+      </div>
+      <div
+        style={{
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          flex: '1 1 0',
+          minHeight: 0,
+          backgroundColor: '#ffffff',
+          borderRadius: '0 0 var(--pf-t--global--border--radius--medium) var(--pf-t--global--border--radius--medium)',
+        }}
+      >
+        {children}
+      </div>
       {/* Resize handle */}
-      {!isMinimized && (
-        <div
-          ref={resizeHandleRef}
-          onMouseDown={handleResizeStart}
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            right: 0,
-            width: '20px',
-            height: '20px',
-            cursor: 'nwse-resize',
-            background: 'linear-gradient(135deg, transparent 0%, transparent 40%, var(--pf-t--global--border--color--default) 40%, var(--pf-t--global--border--color--default) 45%, transparent 45%, transparent 55%, var(--pf-t--global--border--color--default) 55%, var(--pf-t--global--border--color--default) 60%, transparent 60%)',
-            borderRadius: '0 0 var(--pf-t--global--border--radius--medium) 0',
-          }}
-          aria-label="Resize widget"
-        />
-      )}
+      <div
+        ref={resizeHandleRef}
+        onMouseDown={handleResizeStart}
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          right: 0,
+          width: '20px',
+          height: '20px',
+          cursor: 'nwse-resize',
+          background: 'linear-gradient(135deg, transparent 0%, transparent 40%, var(--pf-t--global--border--color--default) 40%, var(--pf-t--global--border--color--default) 45%, transparent 45%, transparent 55%, var(--pf-t--global--border--color--default) 55%, var(--pf-t--global--border--color--default) 60%, transparent 60%)',
+          borderRadius: '0 0 var(--pf-t--global--border--radius--medium) 0',
+        }}
+        aria-label="Resize widget"
+      />
     </div>
   );
 
