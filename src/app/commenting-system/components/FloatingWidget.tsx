@@ -311,7 +311,6 @@ export const FloatingWidget: React.FunctionComponent<FloatingWidgetProps> = ({ c
             )}
           </div>
         </div>
-      </div>
       <div
         style={{
           overflowY: 'auto',
